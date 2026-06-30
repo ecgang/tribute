@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0a0c10;
+  --panel: #12151c;
+  --panel-2: #181c24;
+  --border: #242a35;
+  --text: #e7ebf0;
+  --muted: #8b95a6;
+  --accent: #5b9bff;
+  --money: #34d399;
+  --warn: #f5a524;
+  --danger: #f87171;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.mono {
+  font-family: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.bar-track {
+  background: var(--panel-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.seg { transition: all 0.15s ease; }
+
+@keyframes growbar { from { width: 0; } }
+.animate-bar { animation: growbar 0.5s ease-out; }
