@@ -120,14 +120,17 @@ export default function Home() {
           )}
           {data?.report && (
             <>
+              <GroundingBadge backend={backend} unattributed={data.report.unattributed} />
               <AttributionPanel
                 backend={backend}
                 sources={data.report.sources}
                 unattributed={data.report.unattributed}
               />
-              <RslPanel data={data} />
-              <Ledger data={data} backend={backend} />
               <AuditPanel records={data.settlement} entries={data.audit} />
+              <Act2Section>
+                <RslPanel data={data} />
+                <Ledger data={data} backend={backend} />
+              </Act2Section>
             </>
           )}
         </section>
@@ -142,6 +145,64 @@ export default function Home() {
 
 /* ----------------------------------------------------------------------------- */
 
+function GroundingBadge({ backend, unattributed }: { backend: BackendId; unattributed: number }) {
+  const grounded = Math.max(0, 1 - unattributed);
+  const state = grounded >= 0.7 ? "ok" : grounded <= 0.4 ? "bad" : "mid";
+  const color = state === "ok" ? "var(--money)" : state === "bad" ? "var(--danger)" : "var(--warn)";
+  const headline =
+    state === "ok"
+      ? "✓ GROUNDED"
+      : state === "bad"
+        ? "⚠️ NOT GROUNDED"
+        : "◑ PARTIALLY GROUNDED";
+  const sub =
+    state === "bad"
+      ? "answered largely from the model's own memory — not the sources"
+      : "of the answer is causally traced to retrieved sources";
+  return (
+    <div
+      className="rounded-xl border p-4"
+      style={{ borderColor: color, background: "var(--panel)" }}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <span className="text-sm font-semibold uppercase tracking-wide" style={{ color }}>
+            {headline}
+          </span>
+          <span className="ml-2 text-[13px]" style={{ color: "var(--muted)" }}>
+            <span className="mono font-semibold" style={{ color }}>{pct(grounded)}</span> {sub}
+          </span>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px]" style={{ color: "var(--muted)" }}>
+        {backend === "causal"
+          ? "Measured causally (leave-one-out): the share of the answer that actually changes when sources are removed. This is the audit-grade grounding signal."
+          : "Naive backends assume everything retrieved was used — switch to Causal to see the true grounding (and watch this number drop)."}
+      </p>
+    </div>
+  );
+}
+
+function Act2Section({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mt-1">
+      <div className="mb-3 flex items-center gap-3">
+        <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
+          Act 2 · when payment rails arrive
+        </span>
+        <span className="h-px flex-1" style={{ background: "var(--border)" }} />
+      </div>
+      <p className="mb-3 text-[12px]" style={{ color: "var(--muted)" }}>
+        The same causal record that proves grounding today becomes the meter that <em>settles</em>{" "}
+        per-inference payments when RSL&apos;s rail matures. Same engine, expansion market.
+      </p>
+      <div className="flex flex-col gap-5" style={{ opacity: 0.75 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function Header({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-3">
@@ -155,13 +216,12 @@ function Header({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
           </span>
           <h1 className="text-2xl font-semibold tracking-tight">Tribute</h1>
           <span className="mono text-[11px] rounded px-1.5 py-0.5" style={{ background: "var(--panel-2)", color: "var(--muted)" }}>
-            inference-attribution meter
+            AI answer provenance
           </span>
         </div>
         <p className="mt-1 max-w-2xl text-sm" style={{ color: "var(--muted)" }}>
-          Independent per-source attribution for AI answers — <em>DoubleVerify for the answer economy.</em>{" "}
-          RSL declared pay-per-use (Dec 2025, 1,500+ publishers); the attribution measurement is the
-          undefined hole. <span style={{ color: "var(--text)" }}>This is the meter.</span>
+          Prove which sources your AI actually <em>used</em> to answer — causally, not just retrieved,
+          and tamper-evident. <span style={{ color: "var(--text)" }}>The provenance layer for enterprise AI.</span>
         </p>
       </div>
       <div className="flex items-center gap-1 rounded-lg p-1" style={{ background: "var(--panel-2)" }}>
@@ -646,7 +706,7 @@ function RslLeverage({ data, backend }: { data: AttributeResponse; backend: Back
   return (
     <div className="panel mt-5 p-4">
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
-        Standing on the standard · RSL leverage
+        Act 2 · Standing on the standard — the settlement expansion (RSL)
       </div>
       <p className="mb-3 max-w-3xl text-[13px]" style={{ color: "var(--muted)" }}>
         The next data squeeze moves from <span style={{ color: "var(--text)" }}>access</span> (crawl
