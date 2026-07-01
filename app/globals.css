@@ -38,6 +38,18 @@ body {
   border-radius: 14px;
 }
 
+/* Weight tiers — hero reads loudest, compact recedes for secondary detail. */
+.panel-hero {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--money);
+  border-radius: 16px;
+}
+.panel-compact {
+  background: var(--panel-2);
+  border-radius: 10px;
+}
+
 .bar-track {
   background: var(--panel-2);
   border-radius: 999px;
@@ -48,3 +60,25 @@ body {
 
 @keyframes growbar { from { width: 0; } }
 .animate-bar { animation: growbar 0.5s ease-out; }
+
+/* The reveal: the grounding delta slides + fades in when the backend changes. */
+@keyframes deltaIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-delta { animation: deltaIn 0.35s ease-out; }
+
+/* The settlement record visibly re-emits when the meter inputs change. */
+@keyframes emitFlash { from { opacity: 0.3; } to { opacity: 1; } }
+.animate-emit { animation: emitFlash 0.45s ease-out; }
+
+/* Smooth the eval chart's active-point + row transitions. */
+.eval-dot { transition: r 0.2s ease, opacity 0.2s ease; }
+.eval-row { transition: background 0.2s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bar,
+  .animate-delta,
+  .animate-emit { animation: none; }
+  .eval-dot, .eval-row { transition: none; }
+}

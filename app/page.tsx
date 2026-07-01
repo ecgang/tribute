@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BACKENDS,
   BACKEND_META,
@@ -20,7 +20,7 @@ const fmtUSD = (n: number) =>
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 export default function Home() {
-  const [traceId, setTraceId] = useState<string>("distractor");
+  const [traceId, setTraceId] = useState<string>("clean-attribution");
   const [backend, setBackend] = useState<BackendId>("retrieval");
   const [mode, setMode] = useState<Mode>("canned");
   const [openQuery, setOpenQuery] = useState<string>("");
@@ -30,6 +30,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [evalResult, setEvalResult] = useState<EvalResult>();
+  // Tracks the last grounded % we displayed, so a backend switch can render the
+  // change as a delta ("▼ 46 pts vs naive") instead of a silent number swap.
+  const prevGroundedRef = useRef<{ v: number; backend: BackendId } | null>(null);
+  const [delta, setDelta] = useState<{ pts: number; vs: BackendId } | null>(null);
 
   useEffect(() => {
     fetch("/api/eval")
@@ -56,7 +60,17 @@ export default function Home() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setData(await res.json());
+      const next = (await res.json()) as typeof data;
+      const grounded = next?.report ? Math.max(0, 1 - next.report.unattributed) : null;
+      const prev = prevGroundedRef.current;
+      // Only a backend switch produces a meaningful "was X, now Y" comparison.
+      setDelta(
+        grounded != null && prev && prev.backend !== backend
+          ? { pts: Math.round((grounded - prev.v) * 100), vs: prev.backend }
+          : null,
+      );
+      if (grounded != null) prevGroundedRef.current = { v: grounded, backend };
+      setData(next);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -120,7 +134,12 @@ export default function Home() {
           )}
           {data?.report && (
             <>
-              <GroundingBadge backend={backend} unattributed={data.report.unattributed} />
+              <GroundingBadge
+                backend={backend}
+                unattributed={data.report.unattributed}
+                delta={delta}
+                onSeeCausal={backend !== "causal" ? () => setBackend("causal") : undefined}
+              />
               <AttributionPanel
                 backend={backend}
                 sources={data.report.sources}
@@ -137,7 +156,7 @@ export default function Home() {
       </div>
 
       {data?.report && <RslLeverage data={data} backend={backend} />}
-      {evalResult && <EvalPanel evalResult={evalResult} />}
+      {evalResult && <EvalPanel evalResult={evalResult} backend={backend} />}
       <Footer />
     </main>
   );
@@ -145,7 +164,17 @@ export default function Home() {
 
 /* ----------------------------------------------------------------------------- */
 
-function GroundingBadge({ backend, unattributed }: { backend: BackendId; unattributed: number }) {
+function GroundingBadge({
+  backend,
+  unattributed,
+  delta,
+  onSeeCausal,
+}: {
+  backend: BackendId;
+  unattributed: number;
+  delta: { pts: number; vs: BackendId } | null;
+  onSeeCausal?: () => void;
+}) {
   const grounded = Math.max(0, 1 - unattributed);
   const state = grounded >= 0.7 ? "ok" : grounded <= 0.4 ? "bad" : "mid";
   const color = state === "ok" ? "var(--money)" : state === "bad" ? "var(--danger)" : "var(--warn)";
@@ -159,46 +188,78 @@ function GroundingBadge({ backend, unattributed }: { backend: BackendId; unattri
     state === "bad"
       ? "answered largely from the model's own memory — not the sources"
       : "of the answer is causally traced to retrieved sources";
+  const causal = backend === "causal";
   return (
-    <div
-      className="rounded-xl border p-4"
-      style={{ borderColor: color, background: "var(--panel)" }}
-    >
-      <div className="flex items-baseline justify-between gap-3">
-        <div>
-          <span className="text-sm font-semibold uppercase tracking-wide" style={{ color }}>
+    // Hero tier — the one number the whole page is built to reveal. Top border
+    // tracks grounding state so the reveal reads in color, not just digits.
+    <div className="panel-hero p-5" style={{ borderTopColor: color }}>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="mono text-[11px] uppercase tracking-wide" style={{ color: "var(--muted)" }}>
+          {causal ? "Causal (leave-one-out) says" : "Naive (retrieval-rank) says"}
+        </span>
+        {delta && (
+          <span
+            className="animate-delta mono text-[11px] font-semibold"
+            style={{ color: delta.pts < 0 ? "var(--danger)" : "var(--money)" }}
+          >
+            {delta.pts < 0 ? "▼" : "▲"} {Math.abs(delta.pts)} pts vs {BACKEND_META[delta.vs].short}
+          </span>
+        )}
+      </div>
+      <div className="flex items-baseline gap-3">
+        <span className="mono text-3xl font-bold leading-none" style={{ color }}>
+          {pct(grounded)}
+        </span>
+        <div className="flex flex-col">
+          <span className="text-base font-semibold uppercase tracking-wide" style={{ color }}>
             {headline}
           </span>
-          <span className="ml-2 text-[13px]" style={{ color: "var(--muted)" }}>
-            <span className="mono font-semibold" style={{ color }}>{pct(grounded)}</span> {sub}
-          </span>
+          <span className="text-[12px]" style={{ color: "var(--muted)" }}>{sub}</span>
         </div>
       </div>
-      <p className="mt-2 text-[11px]" style={{ color: "var(--muted)" }}>
-        {backend === "causal"
+      <p className="mt-3 text-[11px]" style={{ color: "var(--muted)" }}>
+        {causal
           ? "Measured causally (leave-one-out): the share of the answer that actually changes when sources are removed. This is the audit-grade grounding signal."
-          : "Naive backends assume everything retrieved was used — switch to Causal to see the true grounding (and watch this number drop)."}
+          : "Naive backends assume everything retrieved was used — that claim hasn't been verified against the answer yet."}
       </p>
+      {onSeeCausal && (
+        <button
+          onClick={onSeeCausal}
+          className="seg mt-3 rounded-md px-3 py-1.5 text-xs font-semibold"
+          style={{ background: "var(--money)", color: "#06281d" }}
+        >
+          See Causal → watch this number change
+        </button>
+      )}
     </div>
   );
 }
 
 function Act2Section({ children }: { children: React.ReactNode }) {
+  // Deliberately demoted: collapsed by default so it can't steal focus from the
+  // grounding reveal. The teaser stays visible; the detail is one click away.
+  const [open, setOpen] = useState(false);
   return (
     <div className="mt-1">
-      <div className="mb-3 flex items-center gap-3">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="mb-2 flex w-full items-center gap-3 text-left"
+      >
         <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
           Act 2 · when payment rails arrive
         </span>
         <span className="h-px flex-1" style={{ background: "var(--border)" }} />
-      </div>
+        <span className="mono text-[10px]" style={{ color: "var(--muted)" }}>{open ? "hide ▾" : "show ▸"}</span>
+      </button>
       <p className="mb-3 text-[12px]" style={{ color: "var(--muted)" }}>
         The same causal record that proves grounding today becomes the meter that <em>settles</em>{" "}
         per-inference payments when RSL&apos;s rail matures. Same engine, expansion market.
       </p>
-      <div className="flex flex-col gap-5" style={{ opacity: 0.75 }}>
-        {children}
-      </div>
+      {open && (
+        <div className="flex flex-col gap-5" style={{ opacity: 0.85 }}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -492,7 +553,7 @@ const VIA_BADGE: Record<string, { label: string; color: string }> = {
 
 function RslPanel({ data }: { data: AttributeResponse }) {
   return (
-    <div className="panel p-4">
+    <div className="panel-compact p-4">
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
         RSL license terms · discovered per source
       </div>
@@ -541,7 +602,7 @@ function RslPanel({ data }: { data: AttributeResponse }) {
 
 function Ledger({ data, backend }: { data: AttributeResponse; backend: BackendId }) {
   return (
-    <div className="panel p-4">
+    <div className="panel-compact p-4">
       <div className="mb-3 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
           Settlement ledger · RSL-shaped records
@@ -601,6 +662,9 @@ function AuditPanel({
 }) {
   const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
   const [tampered, setTampered] = useState(false);
+  // A trust feature, not the reveal — collapsed by default so a technical
+  // evaluator opens it deliberately rather than it competing above the fold.
+  const [open, setOpen] = useState(false);
 
   const replay = useCallback(async () => {
     const recs = tampered
@@ -614,23 +678,31 @@ function AuditPanel({
 
   return (
     <div className="panel p-4">
-      <div className="mb-3 flex items-center justify-between">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
         <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
           Audit trail · hash-chained <span style={{ color: "var(--money)" }}>· the independence moat</span>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1 text-[11px]" style={{ color: "var(--muted)" }}>
-            <input type="checkbox" checked={tampered} onChange={(e) => setTampered(e.target.checked)} />
-            simulate tamper
-          </label>
-          <button
-            onClick={replay}
-            className="seg rounded-md px-3 py-1 text-xs font-medium"
-            style={{ background: "var(--panel-2)", color: "var(--text)" }}
-          >
-            Replay &amp; verify
-          </button>
-        </div>
+        <span className="mono text-[10px]" style={{ color: "var(--muted)" }}>
+          {open ? "hide ▾" : `${entries.length} records · verify ▸`}
+        </span>
+      </button>
+      {open && (
+      <>
+      <div className="mb-3 mt-3 flex items-center justify-end gap-2">
+        <label className="flex items-center gap-1 text-[11px]" style={{ color: "var(--muted)" }}>
+          <input type="checkbox" checked={tampered} onChange={(e) => setTampered(e.target.checked)} />
+          simulate tamper
+        </label>
+        <button
+          onClick={replay}
+          className="seg rounded-md px-3 py-1 text-xs font-medium"
+          style={{ background: "var(--panel-2)", color: "var(--text)" }}
+        >
+          Replay &amp; verify
+        </button>
       </div>
       <div className="flex flex-col gap-1">
         {entries.length === 0 && (
@@ -657,6 +729,8 @@ function AuditPanel({
             ? "✓ Chain verified — ledger is intact and replayable."
             : "✗ Verification FAILED — a record was altered after settlement."}
         </div>
+      )}
+      </>
       )}
     </div>
   );
@@ -729,11 +803,13 @@ function RslLeverage({ data, backend }: { data: AttributeResponse; backend: Back
           </pre>
         </div>
         <div>
-          <div className="mb-1 text-[11px] font-medium" style={{ color: "var(--money)" }}>
-            What Tribute emits (the hole it leaves)
+          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] font-medium">
+            <span style={{ color: "var(--money)" }}>What Tribute emits (the hole it leaves)</span>
+            <span className="mono text-[9px]" style={{ color: "var(--money)" }}>● re-emits on every meter change</span>
           </div>
           <pre
-            className="mono overflow-x-auto rounded-lg p-3 text-[11px] leading-relaxed"
+            key={`${recordObj?.response_hash ?? "none"}:${backend}`}
+            className="animate-emit mono overflow-x-auto rounded-lg p-3 text-[11px] leading-relaxed"
             style={{ background: "var(--panel-2)", color: "var(--money)", borderLeft: "2px solid var(--money)" }}
           >
 {recordObj ? JSON.stringify(recordObj, null, 2) : "// this source carries no per-use fee\n// (CC / public-domain → attribution only)"}
@@ -784,45 +860,56 @@ function EvalStrip({ evalResult }: { evalResult: EvalResult }) {
   );
 }
 
-function EvalPanel({ evalResult }: { evalResult: EvalResult }) {
-  const W = 360;
-  const H = 150;
-  const mL = 44;
-  const mB = 28;
-  const mT = 12;
-  const mR = 56;
+function EvalPanel({ evalResult, backend }: { evalResult: EvalResult; backend: BackendId }) {
+  const W = 560;
+  const H = 300;
+  const mL = 56;
+  const mB = 44;
+  const mT = 22;
+  const mR = 96;
   const maxCost = Math.max(2, ...evalResult.backends.map((b) => b.cost));
   const yMin = 0.5;
   const x = (cost: number) => mL + (cost / maxCost) * (W - mL - mR);
   const y = (rej: number) => mT + (1 - (rej - yMin) / (1 - yMin)) * (H - mT - mB);
   const pts = [...evalResult.backends].sort((a, b) => a.cost - b.cost);
   const color = (id: BackendId) => (id === "causal" ? "var(--money)" : "var(--accent)");
+  const active = evalBy(evalResult, backend);
 
   return (
     <div className="panel mt-5 p-4">
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
         Cost / fidelity — accuracy vs generations
       </div>
-      <p className="mb-3 text-[13px]" style={{ color: "var(--muted)" }}>
+      <p className="mb-2 text-[13px]" style={{ color: "var(--muted)" }}>
         Dial accuracy per budget. The cheap backends are calibrated against{" "}
         <span style={{ color: "var(--money)" }}>measured causal contribution</span> — an independent
         yardstick, not the backends&apos; own similarity assumption.
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[auto_minmax(0,1fr)]">
+      {/* Live: reads off the backend you're currently metering with. */}
+      <p key={backend} className="animate-delta mb-3 text-[13px]">
+        <span style={{ color: "var(--muted)" }}>Now metering with </span>
+        <span className="font-semibold" style={{ color: color(backend) }}>{BACKEND_META[backend].short}</span>
+        <span style={{ color: "var(--muted)" }}> — rejects </span>
+        <span className="mono font-semibold" style={{ color: color(backend) }}>{pct(active.rejection)}</span>
+        <span style={{ color: "var(--muted)" }}> of provably-unused sources at </span>
+        <span className="mono font-semibold" style={{ color: "var(--text)" }}>{active.cost}</span>
+        <span style={{ color: "var(--muted)" }}> gen/response.</span>
+      </p>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[1.5fr_minmax(0,1fr)] md:items-center">
         {/* curve */}
-        <svg width={W} height={H} className="overflow-visible">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[560px] overflow-visible">
           {/* axes */}
           <line x1={mL} y1={mT} x2={mL} y2={H - mB} stroke="var(--border)" />
           <line x1={mL} y1={H - mB} x2={W - mR} y2={H - mB} stroke="var(--border)" />
           {[0.5, 0.75, 1.0].map((g) => (
             <g key={g}>
-              <text x={mL - 6} y={y(g) + 3} textAnchor="end" fontSize="9" fill="var(--muted)">
+              <text x={mL - 8} y={y(g) + 4} textAnchor="end" fontSize="12" fill="var(--muted)">
                 {Math.round(g * 100)}
               </text>
               <line x1={mL} y1={y(g)} x2={W - mR} y2={y(g)} stroke="var(--border)" strokeDasharray="2 3" opacity={0.4} />
             </g>
           ))}
-          <text x={(mL + W - mR) / 2} y={H - 4} textAnchor="middle" fontSize="9" fill="var(--muted)">
+          <text x={(mL + W - mR) / 2} y={H - 8} textAnchor="middle" fontSize="12" fill="var(--muted)">
             generations / response →
           </text>
           {/* connecting line */}
@@ -830,23 +917,44 @@ function EvalPanel({ evalResult }: { evalResult: EvalResult }) {
             points={pts.map((b) => `${x(b.cost)},${y(b.rejection)}`).join(" ")}
             fill="none"
             stroke="var(--border)"
-            strokeWidth={1.5}
+            strokeWidth={2}
           />
-          {/* points */}
-          {pts.map((b) => (
-            <g key={b.backend}>
-              <circle cx={x(b.cost)} cy={y(b.rejection)} r={4.5} fill={color(b.backend)} />
-              <text
-                x={x(b.cost) + 7}
-                y={y(b.rejection) + 3}
-                fontSize="9.5"
-                fill="var(--text)"
-                className="mono"
-              >
-                {BACKEND_META[b.backend].short} {pct(b.rejection)}
-              </text>
-            </g>
-          ))}
+          {/* points — the backend you're metering with lights up, the rest recede */}
+          {pts.map((b) => {
+            const on = b.backend === backend;
+            return (
+              <g key={b.backend} opacity={on ? 1 : 0.45}>
+                {on && (
+                  <circle
+                    cx={x(b.cost)}
+                    cy={y(b.rejection)}
+                    r={13}
+                    fill="none"
+                    stroke={color(b.backend)}
+                    strokeWidth={2}
+                    opacity={0.5}
+                  />
+                )}
+                <circle
+                  className="eval-dot"
+                  cx={x(b.cost)}
+                  cy={y(b.rejection)}
+                  r={on ? 8.5 : 6}
+                  fill={color(b.backend)}
+                />
+                <text
+                  x={x(b.cost) + 10}
+                  y={y(b.rejection) + 4}
+                  fontSize="13"
+                  fontWeight={on ? 700 : 400}
+                  fill="var(--text)"
+                  className="mono"
+                >
+                  {BACKEND_META[b.backend].short} {pct(b.rejection)}
+                </text>
+              </g>
+            );
+          })}
         </svg>
         {/* table */}
         <table className="w-full self-center text-sm">
@@ -859,14 +967,28 @@ function EvalPanel({ evalResult }: { evalResult: EvalResult }) {
             </tr>
           </thead>
           <tbody className="mono text-[12px]">
-            {evalResult.backends.map((b) => (
-              <tr key={b.backend} className="border-t" style={{ borderColor: "var(--border)" }}>
-                <td className="py-1" style={{ color: color(b.backend) }}>{BACKEND_META[b.backend].short}</td>
-                <td className="py-1 text-right font-semibold">{pct(b.rejection)}</td>
-                <td className="py-1 text-right" style={{ color: "var(--muted)" }}>{pct(b.falseAttribution)}</td>
-                <td className="py-1 text-right" style={{ color: "var(--muted)" }}>{b.cost} gen</td>
-              </tr>
-            ))}
+            {evalResult.backends.map((b) => {
+              const on = b.backend === backend;
+              return (
+                <tr
+                  key={b.backend}
+                  className="eval-row border-t"
+                  style={{
+                    borderColor: "var(--border)",
+                    background: on ? "var(--panel-2)" : "transparent",
+                    boxShadow: on ? `inset 2px 0 0 ${color(b.backend)}` : undefined,
+                  }}
+                >
+                  <td className="py-1 pl-2" style={{ color: color(b.backend) }}>
+                    {BACKEND_META[b.backend].short}
+                    {on && <span className="ml-1" style={{ color: "var(--muted)" }}>◀ now</span>}
+                  </td>
+                  <td className="py-1 text-right font-semibold">{pct(b.rejection)}</td>
+                  <td className="py-1 text-right" style={{ color: "var(--muted)" }}>{pct(b.falseAttribution)}</td>
+                  <td className="py-1 text-right" style={{ color: "var(--muted)" }}>{b.cost} gen</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
