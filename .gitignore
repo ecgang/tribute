@@ -44,6 +44,8 @@ next-env.d.ts
 # playwright + screenshots
 .playwright-mcp/
 *.png
+# ...but README/repo images under assets/ are intentional
+!assets/*.png
 
 # tsx cache
 tsx-501/
