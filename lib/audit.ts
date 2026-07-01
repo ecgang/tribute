@@ -17,12 +17,26 @@ export function sha256(s: string): string {
   return createHash("sha256").update(s).digest("hex");
 }
 
-export function buildAuditChain(records: SettlementRecord[]): AuditEntry[] {
+/**
+ * Sync hashing seam. Node's chain builder defaults to `nodeHasher` so every existing
+ * caller (pipeline.ts, engine.test.ts) is unchanged; a Phase-1 signer/anchor can plug
+ * in an alternate `Hasher` without touching those callers.
+ */
+export interface Hasher {
+  sha256(input: string): string;
+}
+
+export const nodeHasher: Hasher = { sha256 };
+
+export function buildAuditChain(
+  records: SettlementRecord[],
+  hasher: Hasher = nodeHasher,
+): AuditEntry[] {
   const entries: AuditEntry[] = [];
   let prevHash = GENESIS;
   records.forEach((r, i) => {
-    const recordHash = sha256(canonicalRecord(r));
-    const chainHash = sha256(prevHash + recordHash);
+    const recordHash = hasher.sha256(canonicalRecord(r));
+    const chainHash = hasher.sha256(prevHash + recordHash);
     entries.push({
       index: i,
       recordHash,
@@ -36,8 +50,12 @@ export function buildAuditChain(records: SettlementRecord[]): AuditEntry[] {
 }
 
 /** Recompute the chain from records and confirm it matches the stored entries. */
-export function verifyChain(records: SettlementRecord[], entries: AuditEntry[]): boolean {
-  const recomputed = buildAuditChain(records);
+export function verifyChain(
+  records: SettlementRecord[],
+  entries: AuditEntry[],
+  hasher: Hasher = nodeHasher,
+): boolean {
+  const recomputed = buildAuditChain(records, hasher);
   if (recomputed.length !== entries.length) return false;
   return recomputed.every(
     (e, i) =>
