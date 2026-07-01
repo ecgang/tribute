@@ -1,0 +1,48 @@
+{
+  "trace": {
+    "id": "byo-example-1",
+    "title": "Bring-your-own trace example",
+    "teaching": "A minimal RAG trace shape a caller can POST directly to /api/attribute — no Tribute-specific pipeline required.",
+    "query": "What are the main tradeoffs of using a vector database versus a full-text search index for retrieval-augmented generation?",
+    "candidates": [
+      {
+        "sourceId": "vecdb-overview",
+        "sourceUrl": "https://example.com/docs/vector-db-tradeoffs",
+        "title": "Vector databases: approximate nearest-neighbor search at scale",
+        "chunkText": "Vector databases index dense embeddings and answer approximate nearest-neighbor queries, which captures semantic similarity that keyword search misses. The tradeoff is index build cost, memory footprint, and the need to keep embeddings in sync with an evolving embedding model.",
+        "retrievalScore": 0.88,
+        "rank": 1,
+        "authorityPrior": 0.9,
+        "canned": { "citationShare": 0.6, "ablationDelta": 0.55 }
+      },
+      {
+        "sourceId": "fulltext-overview",
+        "sourceUrl": "https://example.com/docs/full-text-search-basics",
+        "title": "Full-text search: inverted indexes and exact/lexical matching",
+        "chunkText": "Full-text search engines build inverted indexes over tokens, giving fast exact and lexical matches with mature relevance tuning (BM25, field boosts). They struggle with paraphrase and synonym queries, which is where semantic retrieval tends to win.",
+        "retrievalScore": 0.71,
+        "rank": 2,
+        "authorityPrior": 0.85,
+        "canned": { "citationShare": 0.35, "ablationDelta": 0.4 }
+      },
+      {
+        "sourceId": "hybrid-retrieval",
+        "sourceUrl": "https://example.com/docs/hybrid-retrieval-patterns",
+        "title": "Hybrid retrieval: combining lexical and semantic signals",
+        "chunkText": "Many production RAG systems combine both approaches — lexical search for precision on exact terms, vector search for semantic recall — and merge results with reciprocal rank fusion or a learned re-ranker.",
+        "retrievalScore": 0.42,
+        "rank": 3,
+        "authorityPrior": 0.8,
+        "canned": { "citationShare": 0.05, "ablationDelta": 0.05 }
+      }
+    ],
+    "answer": "Vector databases excel at semantic recall — finding relevant passages even when the query and source use different wording — but cost more to build and maintain since embeddings must be indexed and kept in sync with the embedding model. Full-text search indexes are cheaper to operate and give precise, tunable exact/lexical matches, but miss paraphrased or synonym-based queries. In practice, many production RAG systems use a hybrid approach: lexical search for exact-term precision and vector search for semantic recall, merged with reciprocal rank fusion or a re-ranker.",
+    "citations": [
+      { "claim": "Vector databases excel at semantic recall", "sourceId": "vecdb-overview" },
+      { "claim": "Full-text search indexes are cheaper to operate and give precise, tunable exact/lexical matches", "sourceId": "fulltext-overview" },
+      { "claim": "many production RAG systems use a hybrid approach", "sourceId": "hybrid-retrieval" }
+    ]
+  },
+  "backend": "causal",
+  "mode": "canned"
+}

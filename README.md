@@ -55,6 +55,20 @@ Without the search key, the box shows a graceful "needs a search key" notice; th
 scenarios are unaffected. Retrieval is one pluggable layer (`lib/retrieve.ts`) — everything
 downstream (backends, scoring, settlement, audit) is already source-agnostic.
 
+### Bring your own trace (the module/SDK path)
+Tribute's engine is pipeline-agnostic — POST any RAG trace and get back scored attribution,
+RSL-shaped settlement, and a hash-chained audit record:
+
+```bash
+curl -sX POST http://localhost:3000/api/attribute \
+  -H 'content-type: application/json' \
+  -d @examples/sample-trace.json
+```
+
+`examples/sample-trace.json` already has the `{"trace": <RagTrace>, "backend": "causal",
+"mode": "canned"}` shape the endpoint expects — see that file for the exact `RagTrace`
+contract (`lib/schema.ts`'s `RagTraceSchema`).
+
 ---
 
 ## What it shows (the four scenarios)
