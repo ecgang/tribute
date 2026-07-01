@@ -50,3 +50,6 @@ tsx-501/
 
 # private workflow config (kept local, not published)
 CLAUDE.md
+
+# Internal planning docs — keep out of the public repo (live in ../tribute-private/)
+/plans/
