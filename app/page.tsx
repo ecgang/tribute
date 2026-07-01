@@ -79,6 +79,10 @@ export default function Home() {
   }, [traceId, backend, mode, openQuery, isOpen]);
 
   useEffect(() => {
+    // Imperative data fetch (POST /api/attribute) re-run when the scenario,
+    // backend, or mode changes. Effects are the correct mechanism for this;
+    // there is no render-time or external-store equivalent for a network call.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -674,7 +678,15 @@ function AuditPanel({
     setState(ok ? "ok" : "fail");
   }, [records, entries, tampered]);
 
-  useEffect(() => setState("idle"), [records, tampered]);
+  // Reset the verification result when the records or the tamper toggle change.
+  // Done during render (React's "adjust state on a prop change" pattern) rather
+  // than in an effect, so it doesn't trigger an extra render pass.
+  const verifyKey = `${entries.length}:${entries[0]?.chainHash ?? ""}:${tampered}`;
+  const [seenVerifyKey, setSeenVerifyKey] = useState(verifyKey);
+  if (verifyKey !== seenVerifyKey) {
+    setSeenVerifyKey(verifyKey);
+    setState("idle");
+  }
 
   return (
     <div className="panel p-4">
