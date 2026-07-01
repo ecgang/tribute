@@ -38,12 +38,17 @@ async function attributeLive(
 }
 
 export async function POST(req: Request) {
+  const reqId = crypto.randomUUID();
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await req.json());
   } catch (e) {
-    console.error("attribute route error", e);
-    return NextResponse.json({ error: "bad_request" }, { status: 400 });
+    console.error("attribute route error", {
+      reqId,
+      name: e instanceof Error ? e.name : "unknown",
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return NextResponse.json({ error: "bad_request", reqId }, { status: 400 });
   }
 
   const timestamp = new Date().toISOString();
@@ -56,12 +61,16 @@ export async function POST(req: Request) {
     } catch (e) {
       if (e instanceof SearchUnavailableError) {
         return NextResponse.json(
-          { error: "search_unavailable", notice: `Open prompt needs a search key. ${e.message}` },
+          { error: "search_unavailable", notice: `Open prompt needs a search key. ${e.message}`, reqId },
           { status: 200 },
         );
       }
-      console.error("attribute route error", e);
-      return NextResponse.json({ error: "retrieve_failed" }, { status: 502 });
+      console.error("attribute route error", {
+        reqId,
+        name: e instanceof Error ? e.name : "unknown",
+        message: e instanceof Error ? e.message : String(e),
+      });
+      return NextResponse.json({ error: "retrieve_failed", reqId }, { status: 502 });
     }
 
     const openTrace: RagTrace = {
@@ -83,12 +92,16 @@ export async function POST(req: Request) {
     } catch (e) {
       if (e instanceof LiveUnavailableError) {
         return NextResponse.json(
-          { error: "live_unavailable", notice: `Open prompt needs generation. ${e.message}` },
+          { error: "live_unavailable", notice: `Open prompt needs generation. ${e.message}`, reqId },
           { status: 200 },
         );
       }
-      console.error("attribute route error", e);
-      return NextResponse.json({ error: "live_failed" }, { status: 502 });
+      console.error("attribute route error", {
+        reqId,
+        name: e instanceof Error ? e.name : "unknown",
+        message: e instanceof Error ? e.message : String(e),
+      });
+      return NextResponse.json({ error: "live_failed", reqId }, { status: 502 });
     }
   }
 
@@ -112,8 +125,12 @@ export async function POST(req: Request) {
         notice = "Live mode unavailable (no ANTHROPIC_API_KEY) — showing pre-computed results.";
         result = assembleResponse(trace, body.backend, "canned", rsl, timestamp);
       } else {
-        console.error("attribute route error", e);
-        return NextResponse.json({ error: "live_failed" }, { status: 502 });
+        console.error("attribute route error", {
+          reqId,
+          name: e instanceof Error ? e.name : "unknown",
+          message: e instanceof Error ? e.message : String(e),
+        });
+        return NextResponse.json({ error: "live_failed", reqId }, { status: 502 });
       }
     }
   } else {

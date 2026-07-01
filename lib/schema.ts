@@ -93,7 +93,7 @@ export const RagTraceSchema = z.object({
   /** A short narrator note for the demo describing what this scenario shows. */
   teaching: z.string().optional(),
   query: z.string(),
-  candidates: z.array(RetrievedCandidateSchema),
+  candidates: z.array(RetrievedCandidateSchema).min(1).max(8),
   answer: z.string(),
   citations: z.array(CitationSchema).optional(),
   /** Forward-declared active-backend contract (used by live causal re-generation). */
