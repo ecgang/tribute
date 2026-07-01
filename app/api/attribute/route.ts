@@ -41,6 +41,11 @@ async function attributeLive(
 
 export async function POST(req: Request) {
   const reqId = crypto.randomUUID();
+  // Cost kill switch: the paid paths (live generation + open-prompt search) are OFF
+  // unless LIVE_ENABLED=1. A public deployment with server-side API keys would
+  // otherwise let anyone burn them. Pre-computed mode (the full reveal) needs no
+  // keys, makes no external calls, and is unaffected.
+  const liveEnabled = process.env.LIVE_ENABLED === "1";
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await req.json());
@@ -57,6 +62,17 @@ export async function POST(req: Request) {
 
   // ---- Open-prompt path: retrieve real sources, generate, attribute. Always live. ----
   if (body.query && !body.traceId && !body.trace) {
+    if (!liveEnabled) {
+      return NextResponse.json(
+        {
+          error: "live_disabled",
+          notice:
+            "Live / open-prompt mode is off on this public demo. Clone the repo and run locally with LIVE_ENABLED=1 (plus your own keys) to try it.",
+          reqId,
+        },
+        { status: 200 },
+      );
+    }
     let candidates;
     try {
       candidates = await retrieveCandidates(body.query);
@@ -114,12 +130,14 @@ export async function POST(req: Request) {
   }
 
   const urls = trace.candidates.map((c) => c.sourceUrl);
-  const rsl = await discoverAll(urls, { tryLive: body.mode === "live" });
+  // Force canned unless live is explicitly enabled — no model calls, no outbound fetches otherwise.
+  const mode = liveEnabled ? body.mode : "canned";
+  const rsl = await discoverAll(urls, { tryLive: mode === "live" });
 
   let notice: string | undefined;
   let result: AttributeResponse;
 
-  if (body.mode === "live") {
+  if (mode === "live") {
     try {
       result = await attributeLive(trace, body.backend, rsl, timestamp);
     } catch (e) {
