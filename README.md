@@ -109,6 +109,19 @@ CC/public-domain sources show their real licenses (no fee). Terms are tagged `li
 `illustrative`, `CC`, or `none` so nothing is misrepresented. (Note: `payment type="inference"`
 appears on rslstandard.org's guide page, but the *deployed* files use `type="use"` — we use `use`.)
 
+## Credibility / eval harness
+
+`lib/eval.ts` runs an independent credibility check against every backend, surfaced live in
+the app's accuracy panel (and at `GET /api/eval`):
+- **False-attribution rate** — how often a backend credits a source labeled `groundTruthUnused`
+  (independently labeled, not derived from the backend's own scoring).
+- **Calibration** — Spearman rank agreement between each cheap backend's ranking and the
+  measured causal backend's ranking (1.00 for causal itself, since it's compared to itself).
+
+Both use synthetic ground truth **we control** — deliberately not circular with the scoring
+logic, but **not third-party validated**. Treat it as an internal diligence signal, not an
+external audit.
+
 ## Honest scope (state this to investors — it's on-thesis)
 
 - **The settlement rail does not exist yet.** RSL 1.0 declares `payment type="use"` but

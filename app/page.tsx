@@ -903,6 +903,11 @@ function EvalPanel({ evalResult, backend }: { evalResult: EvalResult; backend: B
         <span style={{ color: "var(--money)" }}>measured causal contribution</span> — an independent
         yardstick, not the backends&apos; own similarity assumption.
       </p>
+      <p className="mb-2 text-[13px]" style={{ color: "var(--muted)" }}>
+        <strong style={{ color: "var(--text)" }}>Calibration</strong> = rank agreement (Spearman)
+        between each cheap backend and the measured causal backend — an independent yardstick,
+        synthetic ground truth, not third-party validated.
+      </p>
       {/* Live: reads off the backend you're currently metering with. */}
       <p key={backend} className="animate-delta mb-3 text-[13px]">
         <span style={{ color: "var(--muted)" }}>Now metering with </span>
@@ -981,6 +986,7 @@ function EvalPanel({ evalResult, backend }: { evalResult: EvalResult; backend: B
               <th className="pb-1 font-medium">backend</th>
               <th className="pb-1 text-right font-medium">rejection</th>
               <th className="pb-1 text-right font-medium">false-attr</th>
+              <th className="pb-1 text-right font-medium">calibration</th>
               <th className="pb-1 text-right font-medium">cost</th>
             </tr>
           </thead>
@@ -1003,6 +1009,9 @@ function EvalPanel({ evalResult, backend }: { evalResult: EvalResult; backend: B
                   </td>
                   <td className="py-1 text-right font-semibold">{pct(b.rejection)}</td>
                   <td className="py-1 text-right" style={{ color: "var(--muted)" }}>{pct(b.falseAttribution)}</td>
+                  <td className="py-1 text-right" style={{ color: on ? color(b.backend) : "var(--muted)" }}>
+                    {b.calibrationVsCausal.toFixed(2)}
+                  </td>
                   <td className="py-1 text-right" style={{ color: "var(--muted)" }}>{b.cost} gen</td>
                 </tr>
               );

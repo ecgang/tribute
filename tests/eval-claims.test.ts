@@ -20,6 +20,10 @@ describe("eval harness — independent accuracy", () => {
   it("labels at least 3 independent ground-truth-unused sources", () => {
     expect(r.unusedSampleCount).toBeGreaterThanOrEqual(3);
   });
+
+  it("causal backend perfectly correlates with itself (calibration = 1)", () => {
+    expect(by("causal").calibrationVsCausal).toBe(1);
+  });
 });
 
 describe("claim-level causal delta — content, not phrasing", () => {
