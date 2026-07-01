@@ -37,5 +37,11 @@ export function canonicalizeUrl(url: string): string {
 /** Deterministic stable id from the canonical URL (path-aware). */
 export function sourceIdFor(url: string): string {
   const c = canonicalizeUrl(url);
-  return `${domainOf(c)}${new URL(c).pathname}`.replace(/[^a-z0-9]+/gi, "-").replace(/-+$/g, "");
+  let path = "";
+  try {
+    path = new URL(c).pathname;
+  } catch {
+    path = c.replace(/^https?:\/\/[^/]*/i, "");
+  }
+  return `${domainOf(c)}${path}`.replace(/[^a-z0-9]+/gi, "-").replace(/-+$/g, "");
 }
