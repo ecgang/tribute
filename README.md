@@ -122,6 +122,25 @@ Both use synthetic ground truth **we control** — deliberately not circular wit
 logic, but **not third-party validated**. Treat it as an internal diligence signal, not an
 external audit.
 
+Run it standalone with `npm run benchmark` — prints the same numbers as `GET /api/eval` as a
+plain-text, citable table.
+
+### Methodology & references
+
+The false-attribution + calibration approach follows established RAG-attribution evaluation
+literature, not an ad-hoc metric:
+- **RAGAS** (arXiv [2309.15217](https://arxiv.org/abs/2309.15217)) — reference-free RAG
+  evaluation metrics, including faithfulness/attribution scoring without gold labels.
+- **ALCE** (arXiv [2305.14627](https://arxiv.org/abs/2305.14627)) — benchmarks LLMs' ability to
+  generate text with correct, verifiable citations to retrieved sources.
+- **AIS / "Measuring Attribution in Natural Language Generation Models"**
+  (arXiv [2112.12870](https://arxiv.org/abs/2112.12870)) — the attributable-to-identified-sources
+  framework this project's false-attribution rate is conceptually aligned with.
+
+The current benchmark dataset is a small, hand-labeled set (`SAMPLE_TRACES`); swapping in
+larger corpora from the above benchmarks is a noted follow-up (`loadBenchmarkTraces` in
+`lib/eval.ts` is the seam for that).
+
 ## Honest scope (state this to investors — it's on-thesis)
 
 - **The settlement rail does not exist yet.** RSL 1.0 declares `payment type="use"` but

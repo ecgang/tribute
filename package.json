@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "benchmark": "npx tsx scripts/benchmark.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.107.0",

@@ -17,7 +17,7 @@
  * Plus the COST/FIDELITY curve: accuracy vs the number of model generations each backend
  * costs — the "dial accuracy per budget" economics.
  */
-import { BACKENDS, type BackendId } from "./schema";
+import { BACKENDS, type BackendId, type RagTrace } from "./schema";
 import { SAMPLE_TRACES } from "./sampleTraces";
 import { relevanceWeights } from "./attribution";
 import { buildReport } from "./scoring";
@@ -30,8 +30,26 @@ export const BACKEND_COST: Record<BackendId, number> = {
   causal: 0, // set per-trace below: 1 baseline + N ablations
 };
 
-function scoresFor(traceIndex: number, backend: BackendId): Record<string, number> {
-  const trace = SAMPLE_TRACES[traceIndex];
+/**
+ * Loader seam — the labeled dataset the benchmark runs over. Today this is the
+ * hand-authored, independently-labeled SAMPLE_TRACES (canned mode). The metric
+ * computation below (evaluate) only depends on this function's return shape, so a
+ * larger/real corpus can be swapped in here without touching the math.
+ *
+ * // TODO: dataset adapters (RAGAS/ALCE/AIS corpora) — load real labeled traces from
+ * those benchmarks instead of/alongside SAMPLE_TRACES. Out of scope for this change;
+ * see plans/009-eval-benchmark-module.md.
+ */
+export function loadBenchmarkTraces(): RagTrace[] {
+  return SAMPLE_TRACES;
+}
+
+function scoresFor(
+  traces: RagTrace[],
+  traceIndex: number,
+  backend: BackendId,
+): Record<string, number> {
+  const trace = traces[traceIndex];
   const rel = relevanceWeights(trace, backend);
   const report = buildReport(trace, backend, rel, "canned");
   const out: Record<string, number> = {};
@@ -76,15 +94,16 @@ export interface EvalResult {
 }
 
 export function evaluate(): EvalResult {
+  const traces = loadBenchmarkTraces();
+
   // Average causal cost across traces = 1 baseline + N ablations.
-  const avgCausalCost =
-    SAMPLE_TRACES.reduce((a, t) => a + 1 + t.candidates.length, 0) / SAMPLE_TRACES.length;
+  const avgCausalCost = traces.reduce((a, t) => a + 1 + t.candidates.length, 0) / traces.length;
 
   // Collect causal scores per trace once (the calibration yardstick).
-  const causalScores = SAMPLE_TRACES.map((_, i) => scoresFor(i, "causal"));
+  const causalScores = traces.map((_, i) => scoresFor(traces, i, "causal"));
 
   let unusedSampleCount = 0;
-  SAMPLE_TRACES.forEach((t) =>
+  traces.forEach((t) =>
     t.candidates.forEach((c) => {
       if (c.groundTruthUnused) unusedSampleCount += 1;
     }),
@@ -95,8 +114,8 @@ export function evaluate(): EvalResult {
     let unusedCount = 0;
     let calibSum = 0;
 
-    SAMPLE_TRACES.forEach((trace, i) => {
-      const scores = scoresFor(i, backend);
+    traces.forEach((trace, i) => {
+      const scores = scoresFor(traces, i, backend);
       trace.candidates.forEach((c) => {
         if (c.groundTruthUnused) {
           unusedWeightSum += scores[c.sourceId] ?? 0;
@@ -111,10 +130,46 @@ export function evaluate(): EvalResult {
       backend,
       falseAttribution: Number(falseAttribution.toFixed(4)),
       rejection: Number((1 - falseAttribution).toFixed(4)),
-      calibrationVsCausal: Number((calibSum / SAMPLE_TRACES.length).toFixed(3)),
+      calibrationVsCausal: Number((calibSum / traces.length).toFixed(3)),
       cost: backend === "causal" ? Number(avgCausalCost.toFixed(1)) : BACKEND_COST[backend],
     };
   });
 
-  return { backends, unusedSampleCount, traceCount: SAMPLE_TRACES.length };
+  return { backends, unusedSampleCount, traceCount: traces.length };
+}
+
+/**
+ * Formats an EvalResult into a plain-text, citable benchmark table: a one-line headline
+ * (the pitch's measured claim) followed by a per-backend table. Pure formatting — no
+ * metric computation happens here.
+ */
+export function formatReport(result: EvalResult): string {
+  const causal = result.backends.find((b) => b.backend === "causal");
+  const retrieval = result.backends.find((b) => b.backend === "retrieval");
+  const headline =
+    causal && retrieval
+      ? `Causal rejects ${(causal.rejection * 100).toFixed(1)}% of provably-unused sources; ` +
+        `naive retrieval only ${(retrieval.rejection * 100).toFixed(1)}% — measured on ` +
+        `${result.unusedSampleCount} labeled sources across ${result.traceCount} traces.`
+      : `Measured on ${result.unusedSampleCount} labeled sources across ${result.traceCount} traces.`;
+
+  const header = ["backend", "rejection", "false-attr", "calibration", "cost"];
+  const rows = result.backends.map((b) => [
+    b.backend,
+    b.rejection.toFixed(4),
+    b.falseAttribution.toFixed(4),
+    b.calibrationVsCausal.toFixed(3),
+    String(b.cost),
+  ]);
+  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
+  const formatRow = (cols: string[]): string =>
+    cols.map((c, i) => c.padEnd(widths[i])).join("  ");
+
+  const table = [
+    formatRow(header),
+    widths.map((w) => "-".repeat(w)).join("  "),
+    ...rows.map(formatRow),
+  ].join("\n");
+
+  return `${headline}\n\n${table}`;
 }
