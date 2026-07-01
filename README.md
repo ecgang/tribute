@@ -21,6 +21,7 @@ actually happened) and watch the per-source payouts — and the dollars — move
 npm install
 npm run dev        # http://localhost:3000
 npm test           # engine unit tests (the credibility layer)
+npm run typecheck   # types only, no build
 npm run build      # production build / typecheck
 ```
 

@@ -5,7 +5,7 @@
  * causal backend (leave-one-out) *disagree* in an instructive, honest way — that
  * divergence is the pitch ("self-reported attribution is worth zero").
  *
- * `canned` signals (citationShare, ablationDelta, usageShare) stand in for what live
+ * `canned` signals (citationShare, ablationDelta) stand in for what live
  * mode computes from a real model. They are hand-set to reflect realistic behavior.
  */
 import type { RagTrace } from "./schema";
@@ -30,7 +30,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.92,
         rank: 1,
         authorityPrior: 1.0,
-        canned: { citationShare: 0.7, ablationDelta: 0.66, usageShare: 0.6 },
+        canned: { citationShare: 0.7, ablationDelta: 0.66 },
       },
       {
         sourceId: "agc-2",
@@ -41,7 +41,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.6,
         rank: 2,
         authorityPrior: 0.95,
-        canned: { citationShare: 0.25, ablationDelta: 0.24, usageShare: 0.3 },
+        canned: { citationShare: 0.25, ablationDelta: 0.24 },
       },
       {
         sourceId: "agc-3",
@@ -52,7 +52,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.34,
         rank: 3,
         authorityPrior: 0.85,
-        canned: { citationShare: 0.05, ablationDelta: 0.06, usageShare: 0.1 },
+        canned: { citationShare: 0.05, ablationDelta: 0.06 },
       },
     ],
     citations: [
@@ -84,7 +84,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         groundTruthUnused: true,
         // Model plausibly-but-wrongly cites this topically-similar source: citation backend
         // is fooled (0.20), only causal catches that it was unused (0.03). On-thesis.
-        canned: { citationShare: 0.2, ablationDelta: 0.03, usageShare: 0.03 },
+        canned: { citationShare: 0.2, ablationDelta: 0.03 },
       },
       {
         sourceId: "jwst-launch",
@@ -95,7 +95,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.82,
         rank: 2,
         authorityPrior: 1.0,
-        canned: { citationShare: 0.55, ablationDelta: 0.56, usageShare: 0.5 },
+        canned: { citationShare: 0.55, ablationDelta: 0.56 },
       },
       {
         sourceId: "jwst-mirror",
@@ -106,7 +106,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.5,
         rank: 3,
         authorityPrior: 0.9,
-        canned: { citationShare: 0.43, ablationDelta: 0.41, usageShare: 0.47 },
+        canned: { citationShare: 0.43, ablationDelta: 0.41 },
       },
     ],
     citations: [
@@ -135,7 +135,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         rank: 1,
         authorityPrior: 1.0,
         groundTruthUnused: true,
-        canned: { citationShare: 0.1, ablationDelta: 0.04, usageShare: 0.15 },
+        canned: { citationShare: 0.1, ablationDelta: 0.04 },
       },
       {
         sourceId: "boil-2",
@@ -147,7 +147,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         rank: 2,
         authorityPrior: 0.9,
         groundTruthUnused: true,
-        canned: { citationShare: 0.08, ablationDelta: 0.03, usageShare: 0.12 },
+        canned: { citationShare: 0.08, ablationDelta: 0.03 },
       },
       {
         sourceId: "boil-3",
@@ -159,7 +159,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         rank: 3,
         authorityPrior: 0.95,
         groundTruthUnused: true,
-        canned: { citationShare: 0.05, ablationDelta: 0.02, usageShare: 0.1 },
+        canned: { citationShare: 0.05, ablationDelta: 0.02 },
       },
     ],
   },
@@ -182,7 +182,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.82,
         rank: 1,
         authorityPrior: 0.95,
-        canned: { citationShare: 0.35, ablationDelta: 0.16, usageShare: 0.3 },
+        canned: { citationShare: 0.35, ablationDelta: 0.16 },
       },
       {
         sourceId: "tohoku-mag-b",
@@ -193,7 +193,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.79,
         rank: 2,
         authorityPrior: 0.95,
-        canned: { citationShare: 0.33, ablationDelta: 0.15, usageShare: 0.3 },
+        canned: { citationShare: 0.33, ablationDelta: 0.15 },
       },
       {
         sourceId: "tohoku-tsunami",
@@ -204,7 +204,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
         retrievalScore: 0.55,
         rank: 3,
         authorityPrior: 0.95,
-        canned: { citationShare: 0.32, ablationDelta: 0.55, usageShare: 0.35 },
+        canned: { citationShare: 0.32, ablationDelta: 0.55 },
       },
     ],
     citations: [

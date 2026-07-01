@@ -75,8 +75,6 @@ export const RetrievedCandidateSchema = z.object({
       citationShare: z.number().min(0).max(1).optional(),
       /** Normalized semantic change in the answer when this source is removed (backend D). 0..1 */
       ablationDelta: z.number().min(0).max(1).optional(),
-      /** Share of answer tokens drawn from this source (Usage). 0..1 */
-      usageShare: z.number().min(0).max(1).optional(),
     })
     .optional(),
 });

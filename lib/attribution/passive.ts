@@ -64,18 +64,3 @@ export function uniquenessMap(trace: RagTrace): WeightMap {
   }
   return out;
 }
-
-/** Usage: share of the answer attributable to this source (token/claim share). */
-export function usageMap(trace: RagTrace): WeightMap {
-  const haveCanned = trace.candidates.some((c) => c.canned?.usageShare != null);
-  const out: WeightMap = {};
-  if (haveCanned) {
-    for (const c of trace.candidates) out[c.sourceId] = c.canned?.usageShare ?? 0;
-    return out;
-  }
-  // Derive from semantic overlap, normalized across sources.
-  const sem = semanticWeights(trace);
-  const sum = Object.values(sem).reduce((a, b) => a + b, 0) || 1;
-  for (const c of trace.candidates) out[c.sourceId] = sem[c.sourceId] / sum;
-  return out;
-}
