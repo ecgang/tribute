@@ -19,6 +19,16 @@ const fmtUSD = (n: number) =>
   n === 0 ? "$0.00" : `$${n.toFixed(n < 0.01 ? 6 : 4)}`;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+function downloadJson(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function Home() {
   const [traceId, setTraceId] = useState<string>("clean-attribution");
   const [backend, setBackend] = useState<BackendId>("retrieval");
@@ -155,7 +165,12 @@ export default function Home() {
                 sources={data.report.sources}
                 unattributed={data.report.unattributed}
               />
-              <AuditPanel records={data.settlement} entries={data.audit} />
+              <AuditPanel
+                records={data.settlement}
+                entries={data.audit}
+                backend={backend}
+                total={data.total}
+              />
               <Act2Section>
                 <RslPanel data={data} />
                 <Ledger data={data} backend={backend} />
@@ -666,9 +681,13 @@ function Ledger({ data, backend }: { data: AttributeResponse; backend: BackendId
 function AuditPanel({
   records,
   entries,
+  backend,
+  total,
 }: {
   records: SettlementRecord[];
   entries: AttributeResponse["audit"];
+  backend: BackendId;
+  total: AttributeResponse["total"];
 }) {
   const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
   const [tampered, setTampered] = useState(false);
@@ -720,6 +739,23 @@ function AuditPanel({
           style={{ background: "var(--panel-2)", color: "var(--text)" }}
         >
           Replay &amp; verify
+        </button>
+        <button
+          onClick={() =>
+            downloadJson(`tribute-audit-${backend}.json`, {
+              kind: "tribute.audit-record",
+              version: 1,
+              exportedAt: new Date().toISOString(),
+              backend,
+              settlement: records,
+              audit: entries,
+              total,
+            })
+          }
+          className="seg rounded-md px-3 py-1 text-xs font-medium"
+          style={{ background: "var(--panel-2)", color: "var(--text)" }}
+        >
+          Download audit record (JSON)
         </button>
       </div>
       <div className="flex flex-col gap-1">
