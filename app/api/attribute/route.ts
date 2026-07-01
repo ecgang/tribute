@@ -42,7 +42,8 @@ export async function POST(req: Request) {
   try {
     body = BodySchema.parse(await req.json());
   } catch (e) {
-    return NextResponse.json({ error: "bad_request", detail: String(e) }, { status: 400 });
+    console.error("attribute route error", e);
+    return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
 
   const timestamp = new Date().toISOString();
@@ -59,7 +60,8 @@ export async function POST(req: Request) {
           { status: 200 },
         );
       }
-      return NextResponse.json({ error: "retrieve_failed", detail: String(e) }, { status: 502 });
+      console.error("attribute route error", e);
+      return NextResponse.json({ error: "retrieve_failed" }, { status: 502 });
     }
 
     const openTrace: RagTrace = {
@@ -85,7 +87,8 @@ export async function POST(req: Request) {
           { status: 200 },
         );
       }
-      return NextResponse.json({ error: "live_failed", detail: String(e) }, { status: 502 });
+      console.error("attribute route error", e);
+      return NextResponse.json({ error: "live_failed" }, { status: 502 });
     }
   }
 
@@ -109,7 +112,8 @@ export async function POST(req: Request) {
         notice = "Live mode unavailable (no ANTHROPIC_API_KEY) — showing pre-computed results.";
         result = assembleResponse(trace, body.backend, "canned", rsl, timestamp);
       } else {
-        return NextResponse.json({ error: "live_failed", detail: String(e) }, { status: 502 });
+        console.error("attribute route error", e);
+        return NextResponse.json({ error: "live_failed" }, { status: 502 });
       }
     }
   } else {

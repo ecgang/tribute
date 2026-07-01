@@ -16,6 +16,7 @@
  */
 import type { RslTerms } from "./schema";
 import { domainOf } from "./sourceResolver";
+import { fetchTextGuarded } from "./ssrfGuard";
 
 const COLLECTIVE = "https://api.rslcollective.org";
 
@@ -141,19 +142,7 @@ export function parseRslXml(url: string, xml: string): RslTerms | null {
 }
 
 async function fetchText(url: string, timeoutMs: number): Promise<string | null> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: { "user-agent": "TributeMeter/0.2 (+https://tribute-wine.vercel.app)" },
-    });
-    return res.ok ? await res.text() : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
+  return fetchTextGuarded(url, timeoutMs);
 }
 
 /** Real discovery: robots.txt License: → rsl/license.xml, then well-known paths. */
