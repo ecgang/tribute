@@ -34,6 +34,10 @@ export default function Home() {
   // change as a delta ("▼ 46 pts vs naive") instead of a silent number swap.
   const prevGroundedRef = useRef<{ v: number; backend: BackendId } | null>(null);
   const [delta, setDelta] = useState<{ pts: number; vs: BackendId } | null>(null);
+  // Monotonic id guards against out-of-order responses: if the user switches
+  // selection before an in-flight request resolves, only the most recently
+  // initiated load() may write state.
+  const reqIdRef = useRef(0);
 
   useEffect(() => {
     fetch("/api/eval")
@@ -47,6 +51,7 @@ export default function Home() {
   const isOpen = openQuery.trim().length > 0;
 
   const load = useCallback(async () => {
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     setError(undefined);
     try {
@@ -61,6 +66,7 @@ export default function Home() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const next = (await res.json()) as typeof data;
+      if (reqId !== reqIdRef.current) return; // a newer selection superseded this one
       const grounded = next?.report ? Math.max(0, 1 - next.report.unattributed) : null;
       const prev = prevGroundedRef.current;
       // Only a backend switch produces a meaningful "was X, now Y" comparison.
@@ -72,9 +78,9 @@ export default function Home() {
       if (grounded != null) prevGroundedRef.current = { v: grounded, backend };
       setData(next);
     } catch (e) {
-      setError(String(e));
+      if (reqId === reqIdRef.current) setError(String(e));
     } finally {
-      setLoading(false);
+      if (reqId === reqIdRef.current) setLoading(false);
     }
   }, [traceId, backend, mode, openQuery, isOpen]);
 
