@@ -7,7 +7,6 @@
  * temperature = 0 (the Anthropic API does not expose a seed); we note this honestly —
  * settlement numbers from live mode are directional, not bit-reproducible.
  */
-import Anthropic from "@anthropic-ai/sdk";
 import type { RetrievedCandidate } from "../schema";
 import { cosine } from "../text";
 import type { WeightMap } from "./passive";
@@ -16,44 +15,14 @@ export const LIVE_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
 export class LiveUnavailableError extends Error {}
 
-function client(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new LiveUnavailableError("ANTHROPIC_API_KEY not set — live mode unavailable.");
-  return new Anthropic({ apiKey });
-}
-
-function buildContext(candidates: RetrievedCandidate[]): string {
-  return candidates
-    .map((c, i) => `[Source ${i + 1}] ${c.title}\n${c.chunkText}`)
-    .join("\n\n");
-}
-
-const SYSTEM =
-  "You are a retrieval-augmented answer engine. Answer the user's question concisely using ONLY the provided sources. If the sources do not contain the answer, answer from general knowledge in one sentence. Do not mention the sources or that you were given context.";
-
-async function generate(
-  anthropic: Anthropic,
-  query: string,
-  candidates: RetrievedCandidate[],
-): Promise<string> {
-  const msg = await anthropic.messages.create({
-    model: LIVE_MODEL,
-    max_tokens: 400,
-    temperature: 0,
-    system: SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content: `Sources:\n${buildContext(candidates)}\n\nQuestion: ${query}`,
-      },
-    ],
-  });
-  return msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-}
+/**
+ * The injectable model-callable: query + candidate sources in, generated answer text out.
+ * Provider-agnostic on purpose — this is the seam a BYO-model deployment injects a customer's
+ * model into, and the seam a future surrogate backend E (k masked `gen` calls + a linear fit
+ * over the results) would consume as just another caller. The concrete Anthropic-backed
+ * implementation lives in `./anthropicGenerate`; `active.ts` never constructs a client.
+ */
+export type GenerateFn = (query: string, candidates: RetrievedCandidate[]) => Promise<string>;
 
 export type LiveCausalResult = {
   answer: string;
@@ -91,19 +60,21 @@ export function claimLevelDelta(baseline: string, ablated: string, threshold = 0
 
 /**
  * Generate a baseline answer, then for each candidate re-generate with it removed and
- * measure the CLAIM-LEVEL delta as that source's causal contribution.
+ * measure the CLAIM-LEVEL delta as that source's causal contribution. `gen` is injected —
+ * this function never constructs a model client itself, which is what makes it unit-testable
+ * with a mock `GenerateFn` (see tests/liveCausal.test.ts).
  */
 export async function liveCausal(
   query: string,
   candidates: RetrievedCandidate[],
+  gen: GenerateFn,
 ): Promise<LiveCausalResult> {
-  const anthropic = client();
-  const baseline = await generate(anthropic, query, candidates);
+  const baseline = await gen(query, candidates);
 
   const deltas = await Promise.all(
     candidates.map(async (c) => {
       const without = candidates.filter((x) => x.sourceId !== c.sourceId);
-      const ablated = without.length ? await generate(anthropic, query, without) : "";
+      const ablated = without.length ? await gen(query, without) : "";
       const delta = claimLevelDelta(baseline, ablated);
       return { sourceId: c.sourceId, delta };
     }),
@@ -115,6 +86,10 @@ export async function liveCausal(
 }
 
 /** For non-causal live runs we still regenerate the answer so the trace is "live". */
-export async function liveAnswer(query: string, candidates: RetrievedCandidate[]): Promise<string> {
-  return generate(client(), query, candidates);
+export async function liveAnswer(
+  query: string,
+  candidates: RetrievedCandidate[],
+  gen: GenerateFn,
+): Promise<string> {
+  return gen(query, candidates);
 }

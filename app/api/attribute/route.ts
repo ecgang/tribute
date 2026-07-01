@@ -5,6 +5,7 @@ import { SAMPLE_TRACE_BY_ID } from "@/lib/sampleTraces";
 import { discoverAll } from "@/lib/rslDiscovery";
 import { assembleResponse } from "@/lib/pipeline";
 import { liveCausal, liveAnswer, LiveUnavailableError, LIVE_MODEL } from "@/lib/attribution/active";
+import { anthropicGenerate } from "@/lib/attribution/anthropicGenerate";
 import { retrieveCandidates, SearchUnavailableError } from "@/lib/retrieve";
 
 export const runtime = "nodejs";
@@ -27,12 +28,13 @@ async function attributeLive(
   rsl: Awaited<ReturnType<typeof discoverAll>>,
   timestamp: string,
 ): Promise<AttributeResponse> {
+  const gen = anthropicGenerate();
   if (backend === "causal") {
-    const { answer, weights, model } = await liveCausal(trace.query, trace.candidates);
+    const { answer, weights, model } = await liveCausal(trace.query, trace.candidates, gen);
     const liveTrace = { ...trace, answer, generation: { model, temperature: 0, promptAssemblyRef: "rag-v1" } };
     return assembleResponse(liveTrace, "causal", "live", rsl, timestamp, { causal: weights });
   }
-  const answer = await liveAnswer(trace.query, trace.candidates);
+  const answer = await liveAnswer(trace.query, trace.candidates, gen);
   const liveTrace = { ...trace, answer, generation: { model: LIVE_MODEL, temperature: 0, promptAssemblyRef: "rag-v1" } };
   return assembleResponse(liveTrace, backend, "live", rsl, timestamp);
 }
