@@ -39,41 +39,69 @@ describe("shouldFetch — open-prompt fetch dedupe / retry lifecycle", () => {
 });
 
 /**
- * A→B→A response-ownership: models the loader's ref algorithm exactly (desiredKey set before the
- * dedupe return; commit gated on shouldCommit). Regression guard for the race where a late B
- * response committed while the UI had returned to A. This fails on the old reqId-only logic.
+ * A→B→A ownership + loading-sync: models the loader's ref algorithm EXACTLY — desiredKey set before
+ * the dedupe return, commit gated on shouldCommit, and `loading` derived from whether the desired
+ * key is in flight at every transition (including the dedupe return and the settle path). Regression
+ * guard for (a) a late B response committing under A, and (b) a cached return-to-A stranding the
+ * spinner. Both fail on the earlier reqId / shouldCommit-gated-finally logic.
  */
-describe("A→B→A ownership — only the currently-desired response commits", () => {
-  it("drops a late B response and commits A after A→B→A with B resolving first", () => {
-    let loadedKey: string | null = null;
-    const inFlight = new Set<string>();
-    let desiredKey = "";
-    const committed: string[] = [];
+function makeLoader() {
+  let loadedKey: string | null = null;
+  const inFlight = new Set<string>();
+  let desiredKey = "";
+  let loading = false;
+  const committed: string[] = [];
 
-    // Mirror of load() up to the request:
-    const start = (key: string): boolean => {
-      desiredKey = key; // recorded BEFORE the dedupe return
-      if (!shouldFetch(key, { loadedKey, inFlight })) return false;
-      inFlight.add(key);
-      return true;
-    };
-    // Mirror of the settle path:
-    const settle = (key: string, ok = true) => {
-      if (shouldCommit(key, desiredKey)) {
-        committed.push(key);
-        if (ok) loadedKey = key;
-      }
-      inFlight.delete(key);
-    };
+  const start = (key: string): boolean => {
+    desiredKey = key; // recorded BEFORE the dedupe return
+    if (!shouldFetch(key, { loadedKey, inFlight })) {
+      loading = inFlight.has(key); // deduped: pending dup → true, cached → false
+      return false;
+    }
+    inFlight.add(key);
+    loading = true;
+    return true;
+  };
+  const settle = (key: string, ok = true) => {
+    if (shouldCommit(key, desiredKey)) {
+      committed.push(key);
+      if (ok) loadedKey = key;
+    }
+    inFlight.delete(key);
+    loading = inFlight.has(desiredKey); // spinner tracks the CURRENTLY-desired request
+  };
+  return {
+    start,
+    settle,
+    committed,
+    get loading() {
+      return loading;
+    },
+  };
+}
 
-    const issuedA1 = start("A"); // A in flight
-    const issuedB = start("B"); // B in flight
-    const issuedA2 = start("A"); // return to A: deduped (A in flight) but desiredKey := "A"
-    expect([issuedA1, issuedB, issuedA2]).toEqual([true, true, false]);
+describe("A→B→A ownership + loading sync", () => {
+  it("in-flight A→B→A (B settles first): only A commits, loading ends false", () => {
+    const L = makeLoader();
+    expect([L.start("A"), L.start("B"), L.start("A")]).toEqual([true, true, false]);
+    L.settle("B"); // desired is A → B dropped; A still pending
+    expect(L.loading).toBe(true);
+    L.settle("A");
+    expect(L.committed).toEqual(["A"]);
+    expect(L.loading).toBe(false);
+  });
 
-    settle("B"); // B resolves first — desired is A → dropped
-    settle("A"); // A resolves — desired A → commits
-
-    expect(committed).toEqual(["A"]); // B never shown under A
+  it("cached A→B→A: A loaded, B starts, return to A, B settles → loading false, B dropped", () => {
+    const L = makeLoader();
+    L.start("A");
+    L.settle("A"); // A cached
+    expect(L.loading).toBe(false);
+    L.start("B"); // B in flight
+    expect(L.loading).toBe(true);
+    L.start("A"); // return to cached A → deduped; desired A is not pending
+    expect(L.loading).toBe(false);
+    L.settle("B"); // late B → dropped, spinner stays cleared
+    expect(L.committed).toEqual(["A"]);
+    expect(L.loading).toBe(false);
   });
 });

@@ -92,6 +92,7 @@ export default function Home() {
   }, []);
 
   const load = useCallback(async () => {
+    void runToken; // a dep (re-runs load on explicit re-submit) but not read in the body
     // Open prompt returns all backends in one payload → backend is NOT part of its fetch key,
     // so toggling backends re-renders from `data.reports` without another server round-trip.
     const fetchKey = isOpen ? `open:${openQuery}` : `sc:${traceId}:${backend}:${mode}`;
@@ -99,6 +100,9 @@ export default function Home() {
     // A as the desired key so A's in-flight response (not a stale B) is the one that commits.
     desiredKeyRef.current = fetchKey;
     if (!shouldFetch(fetchKey, { loadedKey: loadedKeyRef.current, inFlight: inFlightKeysRef.current })) {
+      // Deduped (cached, or already in flight). Sync the spinner to whether the DESIRED request is
+      // actually pending — otherwise a cached return-to-A after starting B would strand loading=true.
+      setLoading(inFlightKeysRef.current.has(fetchKey));
       return;
     }
     inFlightKeysRef.current.add(fetchKey);
@@ -126,7 +130,9 @@ export default function Home() {
       if (shouldCommit(fetchKey, desiredKeyRef.current)) setError(String(e));
     } finally {
       inFlightKeysRef.current.delete(fetchKey); // clear only THIS request's ownership
-      if (shouldCommit(fetchKey, desiredKeyRef.current)) setLoading(false);
+      // Spinner reflects whether the CURRENTLY-desired request is still pending, so a superseded
+      // request settling still clears loading iff nothing desired remains in flight.
+      setLoading(inFlightKeysRef.current.has(desiredKeyRef.current));
     }
     // runToken is a dep so a re-submit of the same open prompt re-runs this even when the query
     // string is unchanged (the submit handler clears loadedKeyRef so the guard permits it).
@@ -136,7 +142,6 @@ export default function Home() {
     // Imperative data fetch (POST /api/attribute) re-run when the scenario,
     // backend, or mode changes. Effects are the correct mechanism for this;
     // there is no render-time or external-store equivalent for a network call.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
