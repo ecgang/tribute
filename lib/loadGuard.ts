@@ -18,3 +18,13 @@ export interface LoadGuardState {
 export function shouldFetch(key: string, state: LoadGuardState): boolean {
   return key !== state.loadedKey && !state.inFlight.has(key);
 }
+
+/**
+ * True when a settled response for `responseKey` should be committed — i.e. it still matches the
+ * latest desired key (the UI's current intent). This is what makes A→B→A safe: after A→B→A the
+ * desired key is A again, so a late B response is dropped and only A's response wins, even though
+ * the returning A request was deduped as already-in-flight.
+ */
+export function shouldCommit(responseKey: string, desiredKey: string): boolean {
+  return responseKey === desiredKey;
+}

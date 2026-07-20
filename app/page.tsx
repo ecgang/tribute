@@ -12,7 +12,7 @@ import {
   type SourceAttribution,
 } from "@/lib/schema";
 import { SAMPLE_TRACES } from "@/lib/sampleTraces";
-import { shouldFetch } from "@/lib/loadGuard";
+import { shouldFetch, shouldCommit } from "@/lib/loadGuard";
 import { verifyChainBrowser } from "@/lib/verifyBrowser";
 import type { BackendEval, EvalResult } from "@/lib/eval";
 
@@ -50,10 +50,10 @@ export default function Home() {
   // change as a delta ("▼ 46 pts vs naive") instead of a silent number swap.
   const prevGroundedRef = useRef<{ v: number; backend: BackendId } | null>(null);
   const [delta, setDelta] = useState<{ pts: number; vs: BackendId } | null>(null);
-  // Monotonic id guards against out-of-order responses: if the user switches
-  // selection before an in-flight request resolves, only the most recently
-  // initiated load() may write state.
-  const reqIdRef = useRef(0);
+  // The fetch key the UI currently wants. Recorded before load()'s dedupe return, so a settled
+  // response commits ONLY if it still matches the latest intent — this is the A→B→A guard
+  // (returning to A restores A as desired, so a late B response is dropped, not shown under A).
+  const desiredKeyRef = useRef<string>("");
   // Fetch-dedupe keys. On an open prompt the four backends all come back in one response, so
   // switching backend is a client-side view change — the loaded key stops it re-firing the (paid)
   // live ablation. Crucially the key locks only on SUCCESS (see load()), so a failed/degraded
@@ -95,11 +95,13 @@ export default function Home() {
     // Open prompt returns all backends in one payload → backend is NOT part of its fetch key,
     // so toggling backends re-renders from `data.reports` without another server round-trip.
     const fetchKey = isOpen ? `open:${openQuery}` : `sc:${traceId}:${backend}:${mode}`;
+    // Record the latest intent BEFORE the dedupe return — even a deduped return-to-A must restore
+    // A as the desired key so A's in-flight response (not a stale B) is the one that commits.
+    desiredKeyRef.current = fetchKey;
     if (!shouldFetch(fetchKey, { loadedKey: loadedKeyRef.current, inFlight: inFlightKeysRef.current })) {
       return;
     }
     inFlightKeysRef.current.add(fetchKey);
-    const reqId = ++reqIdRef.current;
     setLoading(true);
     setError(undefined);
     try {
@@ -114,17 +116,17 @@ export default function Home() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const next = (await res.json()) as typeof data;
-      if (reqId !== reqIdRef.current) return; // a newer selection superseded this one
+      if (!shouldCommit(fetchKey, desiredKeyRef.current)) return; // a newer selection superseded this
       setData(next);
       // Lock the key ONLY on a real, usable response — a degraded 200 (error payload such as
       // live_disabled) leaves it unlocked so the same prompt can be retried. (delta is recomputed
       // reactively below, so it also fires on client-side open-prompt backend switches.)
       if (!next?.error) loadedKeyRef.current = fetchKey;
     } catch (e) {
-      if (reqId === reqIdRef.current) setError(String(e));
+      if (shouldCommit(fetchKey, desiredKeyRef.current)) setError(String(e));
     } finally {
       inFlightKeysRef.current.delete(fetchKey); // clear only THIS request's ownership
-      if (reqId === reqIdRef.current) setLoading(false);
+      if (shouldCommit(fetchKey, desiredKeyRef.current)) setLoading(false);
     }
     // runToken is a dep so a re-submit of the same open prompt re-runs this even when the query
     // string is unchanged (the submit handler clears loadedKeyRef so the guard permits it).
