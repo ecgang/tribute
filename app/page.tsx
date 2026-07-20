@@ -37,6 +37,9 @@ export default function Home() {
   const [backend, setBackend] = useState<BackendId>("retrieval");
   const [mode, setMode] = useState<Mode>("canned");
   const [openQuery, setOpenQuery] = useState<string>("");
+  // Bumped on every open-prompt submit so an identical query re-triggers load() (React ignores a
+  // same-value setState), giving a real retry after a degraded/failed response.
+  const [runToken, setRunToken] = useState(0);
   const [data, setData] = useState<
     AttributeResponse & { notice?: string; error?: string; retrievedCount?: number }
   >();
@@ -56,7 +59,7 @@ export default function Home() {
   // live ablation. Crucially the key locks only on SUCCESS (see load()), so a failed/degraded
   // request stays retryable for the same prompt. Scenarios refetch per backend (server computes one).
   const loadedKeyRef = useRef<string | null>(null);
-  const inFlightKeyRef = useRef<string | null>(null);
+  const inFlightKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/eval")
@@ -74,14 +77,28 @@ export default function Home() {
   const activeReport =
     (isOpen && data?.reports?.[backend] ? data.reports[backend] : data?.report) ?? undefined;
 
+  // Settlement, audit and RSL are always assembled from the causal PRIMARY report, so their labels
+  // and the exported audit record must follow that report's backend — not the display toggle (which
+  // only switches the comparison view on open prompts). Else a causal ledger would read "citation".
+  const settlementBackend = data?.report?.backend ?? backend;
+
+  // Open-prompt submit: lead with the honest causal view, and force a fresh attempt even for an
+  // identical query (clear the lock + bump runToken so load() re-runs despite the same string).
+  const submitOpen = useCallback((q: string) => {
+    loadedKeyRef.current = null;
+    setBackend("causal");
+    setOpenQuery(q);
+    setRunToken((t) => t + 1);
+  }, []);
+
   const load = useCallback(async () => {
     // Open prompt returns all backends in one payload → backend is NOT part of its fetch key,
     // so toggling backends re-renders from `data.reports` without another server round-trip.
     const fetchKey = isOpen ? `open:${openQuery}` : `sc:${traceId}:${backend}:${mode}`;
-    if (!shouldFetch(fetchKey, { loadedKey: loadedKeyRef.current, inFlightKey: inFlightKeyRef.current })) {
+    if (!shouldFetch(fetchKey, { loadedKey: loadedKeyRef.current, inFlight: inFlightKeysRef.current })) {
       return;
     }
-    inFlightKeyRef.current = fetchKey;
+    inFlightKeysRef.current.add(fetchKey);
     const reqId = ++reqIdRef.current;
     setLoading(true);
     setError(undefined);
@@ -106,10 +123,12 @@ export default function Home() {
     } catch (e) {
       if (reqId === reqIdRef.current) setError(String(e));
     } finally {
-      if (inFlightKeyRef.current === fetchKey) inFlightKeyRef.current = null;
+      inFlightKeysRef.current.delete(fetchKey); // clear only THIS request's ownership
       if (reqId === reqIdRef.current) setLoading(false);
     }
-  }, [traceId, backend, mode, openQuery, isOpen]);
+    // runToken is a dep so a re-submit of the same open prompt re-runs this even when the query
+    // string is unchanged (the submit handler clears loadedKeyRef so the guard permits it).
+  }, [traceId, backend, mode, openQuery, isOpen, runToken]);
 
   useEffect(() => {
     // Imperative data fetch (POST /api/attribute) re-run when the scenario,
@@ -152,12 +171,12 @@ export default function Home() {
               setOpenQuery("");
               setTraceId(id);
             }}
-            onSubmitOpen={setOpenQuery}
+            onSubmitOpen={submitOpen}
             loading={loading}
           />
           <AnswerPanel
             query={isOpen ? openQuery : scenario.query}
-            answer={data?.trace.answer ?? (isOpen ? "" : scenario.answer)}
+            answer={data?.trace?.answer ?? (isOpen ? "" : scenario.answer)}
             teaching={
               isOpen
                 ? data?.retrievedCount
@@ -209,19 +228,19 @@ export default function Home() {
               <AuditPanel
                 records={data.settlement}
                 entries={data.audit}
-                backend={backend}
+                backend={settlementBackend}
                 total={data.total}
               />
               <Act2Section>
                 <RslPanel data={data} />
-                <Ledger data={data} backend={backend} />
+                <Ledger data={data} backend={settlementBackend} />
               </Act2Section>
             </>
           )}
         </section>
       </div>
 
-      {data?.report && <RslLeverage data={data} backend={backend} />}
+      {data?.report && <RslLeverage data={data} backend={settlementBackend} />}
       {evalResult && <EvalPanel evalResult={evalResult} backend={backend} />}
       <Footer />
     </main>
