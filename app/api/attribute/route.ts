@@ -3,9 +3,10 @@ import { z } from "zod";
 import { BACKENDS, RagTraceSchema, type AttributeResponse, type RagTrace } from "@/lib/schema";
 import { SAMPLE_TRACE_BY_ID } from "@/lib/sampleTraces";
 import { discoverAll } from "@/lib/rslDiscovery";
-import { assembleResponse } from "@/lib/pipeline";
+import { assembleResponse, assembleLiveWithReports } from "@/lib/pipeline";
 import { liveCausal, liveAnswer, LiveUnavailableError, LIVE_MODEL } from "@/lib/attribution/active";
 import { anthropicGenerate } from "@/lib/attribution/anthropicGenerate";
+import { parseCitations } from "@/lib/attribution/passive";
 import { retrieveCandidates, SearchUnavailableError } from "@/lib/retrieve";
 
 export const runtime = "nodejs";
@@ -101,7 +102,19 @@ export async function POST(req: Request) {
     const rsl = await discoverAll(candidates.map((c) => c.sourceUrl), { tryLive: true });
 
     try {
-      const result = await attributeLive(openTrace, body.backend, rsl, timestamp);
+      // The open-prompt reveal IS causal: run one leave-one-out pass, capture the answer's own
+      // inline citations, then score all four backends over that single answer so the response
+      // can show citation-vs-causal divergence for the same trace. `body.backend` is not consulted
+      // here — the client switches backends over the returned `reports` without another paid run.
+      const gen = anthropicGenerate();
+      const { answer, weights, model } = await liveCausal(openTrace.query, openTrace.candidates, gen);
+      const liveTrace: RagTrace = {
+        ...openTrace,
+        answer,
+        citations: parseCitations(answer, openTrace.candidates),
+        generation: { model, temperature: 0, promptAssemblyRef: "rag-v1" },
+      };
+      const result = assembleLiveWithReports(liveTrace, rsl, timestamp, weights);
       return NextResponse.json({
         ...result,
         retrievedCount: candidates.length,

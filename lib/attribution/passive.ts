@@ -9,10 +9,46 @@
  * the combiner handles normalization). Uniqueness and usage are cross-source features
  * computed here and consumed by the scoring stage.
  */
-import type { RagTrace } from "../schema";
+import type { Citation, RagTrace, RetrievedCandidate } from "../schema";
 import { cosine } from "../text";
 
 export type WeightMap = Record<string, number>;
+
+/** Strip inline citation markers like `[1]` or `[1, 3]` from answer text (and tidy spacing). */
+export function stripCitationMarkers(text: string): string {
+  return text
+    .replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Parse the model's inline `[n]` citation markers into per-claim Citations.
+ * `[n]` is 1-indexed into the candidate set → `candidates[n-1]`; grouped markers like `[1, 3]`
+ * expand to one Citation each. Out-of-range or malformed markers are ignored (never throw), so a
+ * hallucinated `[9]` can't crash the pipeline or credit a non-existent source. `claim` is the
+ * sentence the marker sits in, with markers stripped — `citationWeights` counts occurrences → share.
+ */
+export function parseCitations(answer: string, candidates: RetrievedCandidate[]): Citation[] {
+  const citations: Citation[] = [];
+  const sentences = answer.replace(/\n+/g, " ").split(/(?<=[.!?])\s+/);
+  for (const sentence of sentences) {
+    const markerRe = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = markerRe.exec(sentence)) !== null) {
+      const seen = new Set<number>(); // dedupe within one group: `[1, 1]` counts once
+      for (const part of m[1].split(",")) {
+        const n = parseInt(part.trim(), 10);
+        if (seen.has(n)) continue;
+        seen.add(n);
+        const cand = candidates[n - 1];
+        if (!cand) continue; // out of range / NaN → ignore
+        citations.push({ claim: stripCitationMarkers(sentence), sourceId: cand.sourceId });
+      }
+    }
+  }
+  return citations;
+}
 
 export function retrievalWeights(trace: RagTrace): WeightMap {
   const out: WeightMap = {};

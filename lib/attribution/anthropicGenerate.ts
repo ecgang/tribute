@@ -22,7 +22,11 @@ function buildContext(candidates: RetrievedCandidate[]): string {
 }
 
 const SYSTEM =
-  "You are a retrieval-augmented answer engine. Answer the user's question concisely using ONLY the provided sources. If the sources do not contain the answer, answer from general knowledge in one sentence. Do not mention the sources or that you were given context.";
+  "You are a retrieval-augmented answer engine. Answer the user's question concisely using ONLY the provided sources. " +
+  "Cite the sources you actually use with inline bracketed markers matching their number — e.g. [1], [2] — " +
+  "placing each marker immediately after the sentence or clause it supports. Only cite a source when it genuinely " +
+  "supports that claim; never cite a source you did not use. If the sources do not contain the answer, say so in " +
+  "one sentence and answer from general knowledge without any citation markers.";
 
 /**
  * Build a `GenerateFn` backed by a real Anthropic client. Constructs (and validates) the
