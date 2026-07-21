@@ -53,5 +53,10 @@ tsx-501/
 # private workflow config (kept local, not published)
 CLAUDE.md
 
+# benchmark/kill-test local artifacts (results are generated, cache is transient)
+scripts/.bench-cache/
+scripts/benchmark-result-*
+scripts/kill-test-result-*
+
 # Internal planning docs — keep out of the public repo (live in ../tribute-private/)
 /plans/
