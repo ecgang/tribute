@@ -182,12 +182,10 @@ export default function Home() {
       {!started ? (
         <Landing onSubmitOpen={submitOpen} onPickScenario={(id) => { setOpenQuery(""); setTraceId(id); setStarted(true); }} loading={loading} />
       ) : (
-      <>
-      {evalResult && <EvalStrip evalResult={evalResult} />}
-
-      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-        {/* LEFT: scenario + the RAG answer */}
-        <section className="flex flex-col gap-5">
+      <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+        {/* LEFT RAIL — every control lives here; sticky on desktop so it stays put while the
+            output column scrolls. This is the whole point of the two-column app shell. */}
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-6 lg:self-start">
           <ScenarioPicker
             traceId={traceId}
             isOpen={isOpen}
@@ -198,24 +196,14 @@ export default function Home() {
             onSubmitOpen={submitOpen}
             loading={loading}
           />
-          <AnswerPanel
-            query={isOpen ? openQuery : scenario.query}
-            answer={data?.trace?.answer ?? (isOpen ? "" : scenario.answer)}
-            teaching={
-              isOpen
-                ? data?.retrievedCount
-                  ? `Live: retrieved ${data.retrievedCount} real sources, generated the answer, then measured each source's causal contribution by leave-one-out.`
-                  : "Live open prompt: retrieving sources, generating, and measuring contribution…"
-                : scenario.teaching
-            }
-            mode={isOpen ? "live" : mode}
-            model={data?.report?.mode === "live" ? "live" : "pre-computed"}
-          />
-        </section>
-
-        {/* RIGHT: the meter */}
-        <section className="flex flex-col gap-5">
           <BackendToggle backend={backend} setBackend={setBackend} loading={loading} />
+        </aside>
+
+        {/* MAIN — every output in one reading column: lead stat, the answer, then the meter and
+            its breakdowns. min-w-0 lets wide children (tables, code) scroll instead of blowing out
+            the grid track. */}
+        <div className="flex min-w-0 flex-col gap-5">
+          {evalResult && <EvalStrip evalResult={evalResult} />}
           {error && (
             <div className="panel p-4 text-sm" style={{ color: "var(--danger)" }}>
               {error}
@@ -229,6 +217,19 @@ export default function Home() {
               {data.notice}
             </div>
           )}
+          <AnswerPanel
+            query={isOpen ? openQuery : scenario.query}
+            answer={data?.trace?.answer ?? (isOpen ? "" : scenario.answer)}
+            teaching={
+              isOpen
+                ? data?.retrievedCount
+                  ? `Live: retrieved ${data.retrievedCount} real sources, generated the answer, then measured each source's causal contribution by leave-one-out.`
+                  : "Live open prompt: retrieving sources, generating, and measuring contribution…"
+                : scenario.teaching
+            }
+            mode={isOpen ? "live" : mode}
+            model={data?.report?.mode === "live" ? "live" : "pre-computed"}
+          />
           {data?.report && activeReport && (
             <>
               <GroundingBadge
@@ -259,14 +260,12 @@ export default function Home() {
                 <RslPanel data={data} />
                 <Ledger data={data} backend={settlementBackend} />
               </Act2Section>
+              <RslLeverage data={data} backend={settlementBackend} />
             </>
           )}
-        </section>
+          {evalResult && <EvalPanel evalResult={evalResult} backend={backend} />}
+        </div>
       </div>
-
-      {data?.report && <RslLeverage data={data} backend={settlementBackend} />}
-      {evalResult && <EvalPanel evalResult={evalResult} backend={backend} />}
-      </>
       )}
       <Footer />
     </main>
@@ -566,6 +565,16 @@ const GLOSSARY: [string, string, string][] = [
   ["Corroborative", "e.g. RAGAS", "does the answer merely agree with a source (NLI)."],
 ];
 
+// Pre-fill starters — seed the input box so a visitor can launch (or edit) a question in one
+// click. Shared by the landing hero and the results-view rail prompt. Neutral chips, distinct
+// from the red worked-example links (which jump straight to a pre-computed result).
+const STARTER_PROMPTS = [
+  "How does mRNA vaccine technology work?",
+  "Why did the Roman Empire fall?",
+  "What are the main causes of inflation?",
+  "How does CRISPR gene editing work?",
+];
+
 /**
  * Editorial "Record" landing — restructured, not reskinned. An asymmetric thesis/gloss hero
  * over an instrument input band, then the method as a numbered editorial run (not a card grid),
@@ -629,7 +638,22 @@ function Landing({
             {loading ? "Running…" : "Run ▸"}
           </button>
         </div>
-        <p className="mt-2.5 text-[12px] leading-relaxed" style={{ color: "var(--muted)" }}>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="mono text-[10px] uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+            Start from
+          </span>
+          {STARTER_PROMPTS.map((q) => (
+            <button
+              key={q}
+              onClick={() => setInput(q)}
+              className="chip rounded-sm px-2.5 py-1 text-[12px]"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+
+        <p className="mt-3 text-[12px] leading-relaxed" style={{ color: "var(--muted)" }}>
           A live run searches, generates, and ablates. It needs search + model keys. Or read a
           worked example:{" "}
           {SAMPLE_TRACES.map((t, i) => (
@@ -738,16 +762,16 @@ function ScenarioPicker({
       <div className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
         Scenario
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2">
         {SAMPLE_TRACES.map((t) => {
           const active = !isOpen && traceId === t.id;
           return (
             <button
               key={t.id}
               onClick={() => onPickScenario(t.id)}
-              className="seg rounded-lg border p-3 text-left text-sm"
+              className="seg rounded-md border p-2.5 text-left text-[13px]"
               style={{
-                borderColor: active ? "var(--accent)" : "var(--border)",
+                borderColor: active ? "var(--money)" : "var(--border)",
                 background: active ? "var(--panel-2)" : "transparent",
               }}
             >
@@ -787,6 +811,17 @@ function ScenarioPicker({
           >
             {loading && isOpen ? "Running…" : "Run"}
           </button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {STARTER_PROMPTS.map((q) => (
+            <button
+              key={q}
+              onClick={() => setInput(q)}
+              className="chip rounded-sm px-2 py-0.5 text-[11px]"
+            >
+              {q}
+            </button>
+          ))}
         </div>
         <p className="mt-2 text-[11px]" style={{ color: "var(--muted)" }}>
           Runs the full meter on a live question: search → generate → measure causal contribution →
@@ -856,7 +891,7 @@ function BackendToggle({
           {meta.kind === "active" ? "causal · re-generates" : "passive · observes"}
         </span>
       </div>
-      <div className="grid grid-cols-4 gap-1 rounded-lg p-1" style={{ background: "var(--panel-2)" }}>
+      <div className="grid grid-cols-2 gap-1 rounded-lg p-1" style={{ background: "var(--panel-2)" }}>
         {BACKENDS.map((b) => {
           const active = backend === b;
           const causal = b === "causal";

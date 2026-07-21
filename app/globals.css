@@ -59,6 +59,16 @@ h1, h2, h3, .serif {
 
 .seg { transition: all 0.15s ease; }
 
+/* Starter-prompt chip: a hairline tag that seeds the input. Base colors live here (not inline)
+   so the :hover rule can win — an inline color would out-specify it. Neutral by design, to read
+   as "draft a question," distinct from the red worked-example links that jump to a result. */
+.chip {
+  border: 1px solid var(--border);
+  color: var(--muted);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.chip:hover { border-color: var(--text); color: var(--text); }
+
 @keyframes growbar { from { width: 0; } }
 .animate-bar { animation: growbar 0.5s ease-out; }
 
