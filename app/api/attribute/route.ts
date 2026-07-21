@@ -155,7 +155,7 @@ export async function POST(req: Request) {
       result = await attributeLive(trace, body.backend, rsl, timestamp);
     } catch (e) {
       if (e instanceof LiveUnavailableError) {
-        notice = "Live mode unavailable (no ANTHROPIC_API_KEY) — showing pre-computed results.";
+        notice = "Live mode unavailable (no ANTHROPIC_API_KEY), showing pre-computed results.";
         result = assembleResponse(trace, body.backend, "canned", rsl, timestamp);
       } else {
         console.error("attribute route error", {

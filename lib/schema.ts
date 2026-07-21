@@ -22,7 +22,7 @@ export const BACKEND_META: Record<
     short: "Retrieval",
     kind: "passive",
     blurb:
-      "Weights by retrieval score / rank. Measures availability, not use — this is what most apps self-report.",
+      "Weights by retrieval score / rank. Measures availability, not use. This is what most apps self-report.",
   },
   citation: {
     label: "Citation-grounded",
@@ -43,7 +43,7 @@ export const BACKEND_META: Record<
     short: "Causal",
     kind: "active",
     blurb:
-      "Re-generates the answer with each source removed and measures the delta. Closest to measured causal contribution — the independent, audit-resistant signal.",
+      "Re-generates the answer with each source removed and measures the delta. Closest to measured causal contribution, the independent, audit-resistant signal.",
   },
 };
 

@@ -27,7 +27,7 @@ export async function retrieveCandidates(query: string, k = 4): Promise<Retrieve
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) {
     throw new SearchUnavailableError(
-      "TAVILY_API_KEY not set — open-prompt retrieval unavailable.",
+      "TAVILY_API_KEY not set: open-prompt retrieval unavailable.",
     );
   }
 

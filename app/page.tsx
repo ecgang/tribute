@@ -37,6 +37,10 @@ export default function Home() {
   const [backend, setBackend] = useState<BackendId>("retrieval");
   const [mode, setMode] = useState<Mode>("canned");
   const [openQuery, setOpenQuery] = useState<string>("");
+  // Prompt-first gate: the landing shows only the question box + explainer. The results machinery
+  // (meter, panels, backends, eval) stays hidden — and unfetched — until the user actually runs
+  // something (submits a prompt or opens a pre-computed example).
+  const [started, setStarted] = useState(false);
   // Bumped on every open-prompt submit so an identical query re-triggers load() (React ignores a
   // same-value setState), giving a real retry after a degraded/failed response.
   const [runToken, setRunToken] = useState(0);
@@ -89,10 +93,14 @@ export default function Home() {
     setBackend("causal");
     setOpenQuery(q);
     setRunToken((t) => t + 1);
+    setStarted(true);
   }, []);
 
   const load = useCallback(async () => {
     void runToken; // a dep (re-runs load on explicit re-submit) but not read in the body
+    // Prompt-first: don't fetch anything until the user has run something. On the landing there is
+    // no open query and no picked example, so the default scenario must NOT auto-load.
+    if (!started && !isOpen) return;
     // Open prompt returns all backends in one payload → backend is NOT part of its fetch key,
     // so toggling backends re-renders from `data.reports` without another server round-trip.
     const fetchKey = isOpen ? `open:${openQuery}` : `sc:${traceId}:${backend}:${mode}`;
@@ -136,7 +144,7 @@ export default function Home() {
     }
     // runToken is a dep so a re-submit of the same open prompt re-runs this even when the query
     // string is unchanged (the submit handler clears loadedKeyRef so the guard permits it).
-  }, [traceId, backend, mode, openQuery, isOpen, runToken]);
+  }, [traceId, backend, mode, openQuery, isOpen, runToken, started]);
 
   useEffect(() => {
     // Imperative data fetch (POST /api/attribute) re-run when the scenario,
@@ -162,10 +170,19 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, backend]);
 
+  const goHome = useCallback(() => {
+    setStarted(false);
+    setOpenQuery("");
+  }, []);
+
   return (
     <main className="mx-auto max-w-7xl px-5 py-6">
-      <Header mode={mode} setMode={setMode} />
+      <Header mode={mode} setMode={setMode} started={started} onHome={goHome} />
 
+      {!started ? (
+        <Landing onSubmitOpen={submitOpen} onPickScenario={(id) => { setOpenQuery(""); setTraceId(id); setStarted(true); }} loading={loading} />
+      ) : (
+      <>
       {evalResult && <EvalStrip evalResult={evalResult} />}
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
@@ -188,7 +205,7 @@ export default function Home() {
               isOpen
                 ? data?.retrievedCount
                   ? `Live: retrieved ${data.retrievedCount} real sources, generated the answer, then measured each source's causal contribution by leave-one-out.`
-                  : "Live open prompt — retrieving sources, generating, and measuring contribution…"
+                  : "Live open prompt: retrieving sources, generating, and measuring contribution…"
                 : scenario.teaching
             }
             mode={isOpen ? "live" : mode}
@@ -249,6 +266,8 @@ export default function Home() {
 
       {data?.report && <RslLeverage data={data} backend={settlementBackend} />}
       {evalResult && <EvalPanel evalResult={evalResult} backend={backend} />}
+      </>
+      )}
       <Footer />
     </main>
   );
@@ -278,7 +297,7 @@ function GroundingBadge({
         : "◑ PARTIALLY GROUNDED";
   const sub =
     state === "bad"
-      ? "answered largely from the model's own memory — not the sources"
+      ? "answered largely from the model's own memory, not the sources"
       : "of the answer is causally traced to retrieved sources";
   const causal = backend === "causal";
   return (
@@ -287,7 +306,7 @@ function GroundingBadge({
     <div className="panel-hero p-5" style={{ borderTopColor: color }}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <span className="mono text-[11px] uppercase tracking-wide" style={{ color: "var(--muted)" }}>
-          {causal ? "Causal (leave-one-out) says" : "Naive (retrieval-rank) says"}
+          {causal ? "Contributive · remove-and-regenerate" : "Naive · retrieval-rank"}
         </span>
         {delta && (
           <span
@@ -312,13 +331,13 @@ function GroundingBadge({
       <p className="mt-3 text-[11px]" style={{ color: "var(--muted)" }}>
         {causal
           ? "Measured causally (leave-one-out): the share of the answer that actually changes when sources are removed. This is the audit-grade grounding signal."
-          : "Naive backends assume everything retrieved was used — that claim hasn't been verified against the answer yet."}
+          : "Naive backends assume everything retrieved was used; that claim hasn't been verified against the answer yet."}
       </p>
       {onSeeCausal && (
         <button
           onClick={onSeeCausal}
           className="seg mt-3 rounded-md px-3 py-1.5 text-xs font-semibold"
-          style={{ background: "var(--money)", color: "#06281d" }}
+          style={{ background: "var(--money)", color: "var(--ink)" }}
         >
           See Causal → watch this number change
         </button>
@@ -389,7 +408,7 @@ function DivergencePanel({
       </div>
       <p className="mb-3 text-[12px]" style={{ color: anyDivergence ? "var(--text)" : "var(--muted)" }}>
         {anyDivergence
-          ? "The answer's own citations and its measured causal drivers disagree — see the tags."
+          ? "The answer's own citations and its measured causal drivers disagree. See the tags."
           : "On this question the citations and the causal drivers broadly agree."}
       </p>
       <div className="flex flex-col gap-3">
@@ -397,7 +416,7 @@ function DivergencePanel({
           <div key={s.sourceId}>
             <div className="mb-1 flex items-baseline justify-between gap-2">
               <span className="truncate text-sm font-medium">
-                {cited ? "" : "— "}
+                {cited ? "" : "· "}
                 {s.title}
               </span>
               {tag && (
@@ -453,44 +472,247 @@ function Act2Section({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Header({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
+/**
+ * Editorial masthead: a serif wordmark set as a publication nameplate, the category as a
+ * red-pencil kicker, and a hairline rule under. No logo tile, no colored badge chip — a record
+ * of who published this, not a product header. The mode toggle is a results-view detail.
+ */
+function Header({
+  mode,
+  setMode,
+  started,
+  onHome,
+}: {
+  mode: Mode;
+  setMode: (m: Mode) => void;
+  started: boolean;
+  onHome: () => void;
+}) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <div className="flex items-center gap-2">
+    <header className="mb-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <button onClick={onHome} className="flex items-baseline gap-3 text-left" aria-label="Tribute, home">
+          <span className="serif text-[26px] leading-none" style={{ color: "var(--text)" }}>Tribute</span>
           <span
-            className="grid h-7 w-7 place-items-center rounded-md text-sm font-bold"
-            style={{ background: "var(--money)", color: "#06281d" }}
+            className="mono text-[10px] uppercase tracking-[0.18em]"
+            style={{ color: "var(--signal)" }}
           >
-            ₸
+            Contributive Attribution
           </span>
-          <h1 className="text-2xl font-semibold tracking-tight">Tribute</h1>
-          <span className="mono text-[11px] rounded px-1.5 py-0.5" style={{ background: "var(--panel-2)", color: "var(--muted)" }}>
-            AI answer provenance
-          </span>
+        </button>
+        <div className="flex items-center gap-4">
+          {started && (
+            <div className="flex items-center gap-0.5 rounded-sm p-0.5" style={{ background: "var(--panel-2)" }}>
+              {(["canned", "live"] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className="seg rounded-sm px-3 py-1 text-xs font-medium"
+                  style={
+                    mode === m
+                      ? { background: "var(--money)", color: "var(--ink)" }
+                      : { color: "var(--muted)" }
+                  }
+                >
+                  {m === "canned" ? "Pre-computed" : "Live (Claude)"}
+                </button>
+              ))}
+            </div>
+          )}
+          <a
+            href="https://staqs.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mono text-[11px]"
+            style={{ color: "var(--muted)" }}
+          >
+            staqs.io ↗
+          </a>
         </div>
-        <p className="mt-1 max-w-2xl text-sm" style={{ color: "var(--muted)" }}>
-          Prove which sources your AI actually <em>used</em> to answer — causally, not just retrieved,
-          and tamper-evident. <span style={{ color: "var(--text)" }}>The provenance layer for enterprise AI.</span>
+      </div>
+      {/* On the results view the hero thesis is gone, so carry a one-line standfirst here. */}
+      {started && (
+        <p className="mt-3 max-w-2xl text-[13px] leading-relaxed" style={{ color: "var(--muted)" }}>
+          Which sources an answer actually <em>depended on</em>: removed each, regenerated, measured.
+          Per-answer, tamper-evident.
         </p>
-      </div>
-      <div className="flex items-center gap-1 rounded-lg p-1" style={{ background: "var(--panel-2)" }}>
-        {(["canned", "live"] as Mode[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className="seg rounded-md px-3 py-1.5 text-xs font-medium"
-            style={
-              mode === m
-                ? { background: "var(--accent)", color: "#04142e" }
-                : { color: "var(--muted)" }
-            }
-          >
-            {m === "canned" ? "Pre-computed" : "Live (Claude)"}
-          </button>
-        ))}
-      </div>
+      )}
+      <div className="rule mt-5" />
     </header>
+  );
+}
+
+const METHOD_STEPS: [string, string, string][] = [
+  [
+    "01",
+    "Remove",
+    "Take the finished answer and the sources behind it. Pull one source and regenerate the answer without it.",
+  ],
+  [
+    "02",
+    "Measure",
+    "Read how much of the answer collapses, averaged over every subset of sources (Shapley), so three sources sharing a fact each keep credit instead of all scoring zero. That collapse is the source's causal contribution.",
+  ],
+  [
+    "03",
+    "Compare",
+    "Set what the model cited against what actually moved the answer. A source cited but inert, or uncited but load-bearing, is flagged. The gap between the two is the whole point.",
+  ],
+];
+
+const GLOSSARY: [string, string, string][] = [
+  ["Contributive", "Tribute", "per answer, remove-and-regenerate: did this source cause it."],
+  ["Parametric", "e.g. ProRata", "training-time influence of a corpus on the model, in aggregate."],
+  ["Corroborative", "e.g. RAGAS", "does the answer merely agree with a source (NLI)."],
+];
+
+/**
+ * Editorial "Record" landing — restructured, not reskinned. An asymmetric thesis/gloss hero
+ * over an instrument input band, then the method as a numbered editorial run (not a card grid),
+ * a hanging-indent glossary, and a serif pull-quote. Locked vocabulary throughout.
+ */
+function Landing({
+  onSubmitOpen,
+  onPickScenario,
+  loading,
+}: {
+  onSubmitOpen: (q: string) => void;
+  onPickScenario: (id: string) => void;
+  loading: boolean;
+}) {
+  const [input, setInput] = useState("");
+  const submit = () => {
+    if (input.trim().length >= 3) onSubmitOpen(input.trim());
+  };
+  return (
+    <div className="mx-auto max-w-4xl">
+      {/* Asymmetric hero: big serif thesis left, margin gloss right. */}
+      <section className="mt-10 grid gap-x-10 gap-y-5 md:grid-cols-[1.55fr_1fr] md:items-end">
+        <h2 className="serif text-4xl leading-[1.05] tracking-[-0.015em] sm:text-5xl">
+          A citation is a claim.
+          <br />
+          Nothing checks it.
+        </h2>
+        <p className="text-[14px] leading-relaxed md:pb-1.5" style={{ color: "var(--muted)" }}>
+          Tribute checks it. It retrieves sources, writes an answer, then removes each source and
+          regenerates, measuring which ones the answer actually <em>depended on</em>, not which ones
+          got a footnote.
+        </p>
+      </section>
+
+      {/* Instrument input band — an underline field, not a boxed search widget. */}
+      <section className="mt-10">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label
+              className="mono block text-[10px] uppercase tracking-[0.16em]"
+              style={{ color: "var(--muted)" }}
+            >
+              Question to audit
+            </label>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              autoFocus
+              placeholder="What caused the 2008 financial crisis?"
+              className="mt-2 w-full border-0 border-b bg-transparent pb-1.5 text-[18px] outline-none serif"
+              style={{ borderColor: "var(--text)", color: "var(--text)" }}
+            />
+          </div>
+          <button
+            onClick={submit}
+            disabled={loading || input.trim().length < 3}
+            className="seg shrink-0 rounded-sm px-6 py-2.5 text-sm font-medium disabled:opacity-40"
+            style={{ background: "var(--money)", color: "var(--ink)" }}
+          >
+            {loading ? "Running…" : "Run ▸"}
+          </button>
+        </div>
+        <p className="mt-2.5 text-[12px] leading-relaxed" style={{ color: "var(--muted)" }}>
+          A live run searches, generates, and ablates. It needs search + model keys. Or read a
+          worked example:{" "}
+          {SAMPLE_TRACES.map((t, i) => (
+            <span key={t.id}>
+              {i > 0 && <span style={{ color: "var(--border)" }}> · </span>}
+              <button
+                onClick={() => onPickScenario(t.id)}
+                className="underline decoration-1 underline-offset-2"
+                style={{ color: "var(--signal)" }}
+              >
+                {t.title}
+              </button>
+            </span>
+          ))}
+          .
+        </p>
+      </section>
+
+      <div className="rule mt-14" />
+
+      {/* Method as a numbered editorial run — hanging mono numerals, one column, ruled between. */}
+      <section className="mt-8">
+        <h3 className="mono text-[11px] uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+          The method
+        </h3>
+        <ol className="mt-5">
+          {METHOD_STEPS.map(([n, head, body], i) => (
+            <li
+              key={n}
+              className="grid grid-cols-[2.5rem_1fr] gap-x-4 py-5 sm:grid-cols-[3.5rem_1fr]"
+              style={i > 0 ? { borderTop: "1px solid var(--border)" } : undefined}
+            >
+              <span className="mono text-[13px] leading-7" style={{ color: "var(--signal)" }}>
+                {n}
+              </span>
+              <div>
+                <h4 className="serif text-xl">{head}</h4>
+                <p className="mt-1.5 max-w-[62ch] text-[14px] leading-relaxed" style={{ color: "var(--muted)" }}>
+                  {body}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* Glossary — a hanging-indent definition list positions Tribute against its neighbors. */}
+      <section className="mt-12">
+        <h3 className="mono text-[11px] uppercase tracking-[0.16em]" style={{ color: "var(--muted)" }}>
+          Three questions, often confused
+        </h3>
+        <dl className="mt-5 flex flex-col gap-4">
+          {GLOSSARY.map(([term, who, def], i) => (
+            <div key={term} className="grid gap-x-5 gap-y-1 sm:grid-cols-[11rem_1fr]">
+              <dt>
+                <span className="serif text-lg" style={{ color: i === 0 ? "var(--signal)" : "var(--text)" }}>
+                  {term}
+                </span>
+                <span className="mono mt-0.5 block text-[10px]" style={{ color: "var(--muted)" }}>
+                  {who}
+                </span>
+              </dt>
+              <dd className="text-[14px] leading-relaxed sm:pt-0.5" style={{ color: "var(--muted)" }}>
+                {def}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {/* Pull-quote — the one line that names the category, set as a record's epigraph. */}
+      <blockquote className="mt-14 max-w-2xl">
+        <p className="serif text-2xl leading-snug sm:text-3xl">
+          <span style={{ color: "var(--signal)" }}>“</span>NLI proves consistency, not dependency.
+          <span style={{ color: "var(--signal)" }}>”</span>
+        </p>
+      </blockquote>
+
+      <p className="mt-10 text-[12px] leading-relaxed" style={{ color: "var(--muted)" }}>
+        Tribute audits answers built over sources in a pipeline you control, not a live X-ray into a
+        hosted chatbot&apos;s black box.
+      </p>
+    </div>
   );
 }
 
@@ -553,7 +775,7 @@ function ScenarioPicker({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
-            placeholder="Ask anything — e.g. What caused the 2008 financial crisis?"
+            placeholder="Ask anything, e.g. What caused the 2008 financial crisis?"
             className="mono flex-1 rounded-md border px-3 py-2 text-[13px] outline-none"
             style={{ borderColor: "var(--border)", background: "var(--panel-2)", color: "var(--text)" }}
           />
@@ -561,7 +783,7 @@ function ScenarioPicker({
             onClick={submit}
             disabled={loading || input.trim().length < 3}
             className="seg rounded-md px-4 py-2 text-xs font-semibold disabled:opacity-50"
-            style={{ background: "var(--money)", color: "#06281d" }}
+            style={{ background: "var(--money)", color: "var(--ink)" }}
           >
             {loading && isOpen ? "Running…" : "Run"}
           </button>
@@ -645,7 +867,7 @@ function BackendToggle({
               className="seg rounded-md px-2 py-2 text-xs font-medium"
               style={
                 active
-                  ? { background: causal ? "var(--money)" : "var(--accent)", color: causal ? "#06281d" : "#04142e" }
+                  ? { background: causal ? "var(--money)" : "var(--accent)", color: causal ? "var(--ink)" : "var(--ink)" }
                   : { color: "var(--muted)" }
               }
             >
@@ -737,7 +959,7 @@ const VIA_BADGE: Record<string, { label: string; color: string }> = {
   live: { label: "live · real", color: "var(--money)" },
   cc: { label: "CC / public domain", color: "var(--accent)" },
   illustrative: { label: "illustrative", color: "var(--warn)" },
-  none: { label: "—", color: "var(--muted)" },
+  none: { label: "none", color: "var(--muted)" },
 };
 
 function RslPanel({ data }: { data: AttributeResponse }) {
@@ -748,7 +970,7 @@ function RslPanel({ data }: { data: AttributeResponse }) {
       </div>
       <p className="mb-3 text-[11px]" style={{ color: "var(--muted)" }}>
         Live discovery follows <span className="mono">robots.txt → License: → rsl.xml</span>.
-        Only Stack Overflow &amp; the RSL Collective ship real RSL today — publisher rates are
+        Only Stack Overflow &amp; the RSL Collective ship real RSL today; publisher rates are
         <span style={{ color: "var(--warn)" }}> illustrative</span>, anchored to reported deal economics.
       </p>
       <div className="flex flex-col gap-2">
@@ -944,8 +1166,8 @@ function AuditPanel({
           }
         >
           {state === "ok"
-            ? "✓ Chain verified — ledger is intact and replayable."
-            : "✗ Verification FAILED — a record was altered after settlement."}
+            ? "✓ Chain verified: ledger is intact and replayable."
+            : "✗ Verification FAILED: a record was altered after settlement."}
         </div>
       )}
       </>
@@ -998,13 +1220,13 @@ function RslLeverage({ data, backend }: { data: AttributeResponse; backend: Back
   return (
     <div className="panel mt-5 p-4">
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
-        Act 2 · Standing on the standard — the settlement expansion (RSL)
+        Act 2 · Standing on the standard: the settlement expansion (RSL)
       </div>
       <p className="mb-3 max-w-3xl text-[13px]" style={{ color: "var(--muted)" }}>
         The next data squeeze moves from <span style={{ color: "var(--text)" }}>access</span> (crawl
-        licensing, x402) to <span style={{ color: "var(--text)" }}>attribution</span> — who gets paid
+        licensing, x402) to <span style={{ color: "var(--text)" }}>attribution</span>: who gets paid
         depends on measured contribution. RSL is the rail 1,500+ publishers endorsed (deployment is
-        just beginning — today only Stack Overflow &amp; the RSL Collective ship real terms); it
+        just beginning; today only Stack Overflow &amp; the RSL Collective ship real terms); it
         declared the payment and left the measurement blank. Tribute emits the record that fills it.
       </p>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1040,7 +1262,7 @@ function RslLeverage({ data, backend }: { data: AttributeResponse; backend: Back
           : term.via === "illustrative"
             ? "Amount uses an illustrative rate (RSL not yet deployed for this source) anchored to reported deal economics; the real rate resolves at the publisher's license server. "
             : ""}
-        The attribution score is the part RSL leaves undefined — that is what Tribute measures.
+        The attribution score is the part RSL leaves undefined. That is what Tribute measures.
       </p>
     </div>
   );
@@ -1065,7 +1287,7 @@ function EvalStrip({ evalResult }: { evalResult: EvalResult }) {
         <span className="font-semibold" style={{ color: "var(--money)" }}>
           Causal rejects {pct(causal.rejection)}
         </span>{" "}
-        <span style={{ color: "var(--muted)" }}>of provably-unused sources —</span>{" "}
+        <span style={{ color: "var(--muted)" }}>of provably-unused sources;</span>{" "}
         <span className="font-semibold" style={{ color: "var(--danger)" }}>
           naive retrieval only {pct(retrieval.rejection)}
         </span>
@@ -1096,23 +1318,23 @@ function EvalPanel({ evalResult, backend }: { evalResult: EvalResult; backend: B
   return (
     <div className="panel mt-5 p-4">
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
-        Cost / fidelity — accuracy vs generations
+        Cost / fidelity: accuracy vs generations
       </div>
       <p className="mb-2 text-[13px]" style={{ color: "var(--muted)" }}>
         Dial accuracy per budget. The cheap backends are calibrated against{" "}
-        <span style={{ color: "var(--money)" }}>measured causal contribution</span> — an independent
+        <span style={{ color: "var(--money)" }}>measured causal contribution</span>, an independent
         yardstick, not the backends&apos; own similarity assumption.
       </p>
       <p className="mb-2 text-[13px]" style={{ color: "var(--muted)" }}>
         <strong style={{ color: "var(--text)" }}>Calibration</strong> = rank agreement (Spearman)
-        between each cheap backend and the measured causal backend — an independent yardstick,
+        between each cheap backend and the measured causal backend, an independent yardstick,
         synthetic ground truth, not third-party validated.
       </p>
       {/* Live: reads off the backend you're currently metering with. */}
       <p key={backend} className="animate-delta mb-3 text-[13px]">
         <span style={{ color: "var(--muted)" }}>Now metering with </span>
         <span className="font-semibold" style={{ color: color(backend) }}>{BACKEND_META[backend].short}</span>
-        <span style={{ color: "var(--muted)" }}> — rejects </span>
+        <span style={{ color: "var(--muted)" }}>, rejects </span>
         <span className="mono font-semibold" style={{ color: color(backend) }}>{pct(active.rejection)}</span>
         <span style={{ color: "var(--muted)" }}> of provably-unused sources at </span>
         <span className="mono font-semibold" style={{ color: "var(--text)" }}>{active.cost}</span>
@@ -1227,7 +1449,7 @@ function Footer() {
   return (
     <footer className="mt-8 border-t pt-4 text-[12px]" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>
       Records target a local RSL-shaped ledger. The live RSL Collective reporting API does not yet
-      define a per-source attribution payload — the measurement gap Tribute is early to. Demo only;
+      define a per-source attribution payload, the measurement gap Tribute is early to. Demo only;
       attribution is directional, not court-grade.
     </footer>
   );

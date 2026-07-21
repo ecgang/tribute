@@ -12,7 +12,7 @@ import { systemFor, userBody } from "./prompt";
 
 function client(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new LiveUnavailableError("ANTHROPIC_API_KEY not set — live mode unavailable.");
+  if (!apiKey) throw new LiveUnavailableError("ANTHROPIC_API_KEY not set: live mode unavailable.");
   return new Anthropic({ apiKey });
 }
 

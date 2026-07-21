@@ -22,7 +22,7 @@ const COLLECTIVE = "https://api.rslcollective.org";
 
 /** Illustrative per-use rate anchored to reported deal economics (~$0.001/source-use). */
 const ILLUSTRATIVE_PROVENANCE =
-  "Illustrative rate — anchored to reported AI-licensing deal economics (~$0.001/use; e.g. Reddit–Google $60M/yr). RSL leaves the real rate at the publisher's license server.";
+  "Illustrative rate: anchored to reported AI-licensing deal economics (~$0.001/use; e.g. Reddit–Google $60M/yr). RSL leaves the real rate at the publisher's license server.";
 
 /** Verified-real RSL — content actually fetched + confirmed on 2026-06-30. Embedded so the
  *  demo shows real terms even if a serverless egress IP gets bot-challenged. */
@@ -36,7 +36,7 @@ const KNOWN_REAL: Record<string, Omit<RslTerms, "sourceUrl" | "domain">> = {
     currency: "USD",
     licenseRef: "CC-BY-SA-4.0",
     terms: "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt",
-    provenance: "Real — fetched live via stackoverflow.com/robots.txt → License: → license.xml.",
+    provenance: "Real: fetched live via stackoverflow.com/robots.txt → License: → license.xml.",
     raw: '<rsl xmlns="https://rslstandard.org/rsl"><content url="/"><terms>https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt</terms></content></rsl>',
   },
   "rslcollective.org": {
@@ -47,7 +47,7 @@ const KNOWN_REAL: Record<string, Omit<RslTerms, "sourceUrl" | "domain">> = {
     currency: "USD",
     licenseRef: "https://rslcollective.org/license",
     server: COLLECTIVE,
-    provenance: "Real — RSL Collective's live royalty.xml (payment type=\"use\"); rate resolved at the license server.",
+    provenance: "Real: RSL Collective's live royalty.xml (payment type=\"use\"); rate resolved at the license server.",
     raw: '<rsl xmlns="https://rslstandard.org/rsl"><content url="/" server="https://api.rslcollective.org"><license><permits type="usage">ai-all</permits><payment type="use"><standard>https://rslcollective.org/license</standard></payment></license></content></rsl>',
   },
 };
@@ -86,7 +86,7 @@ function ccTerms(url: string, domain: string): RslTerms {
     baseRate: 0,
     currency: "USD",
     licenseRef: CC_PD[domain].licenseRef,
-    provenance: "Real license — CC / public-domain; attribution required, no per-use fee.",
+    provenance: "Real license: CC / public-domain; attribution required, no per-use fee.",
   };
 }
 
@@ -136,7 +136,7 @@ export function parseRslXml(url: string, xml: string): RslTerms | null {
     licenseRef: standard ?? terms ?? (terms ? "open-terms" : undefined),
     terms,
     server,
-    provenance: `Real — fetched live from ${domain} and parsed as RSL.`,
+    provenance: `Real: fetched live from ${domain} and parsed as RSL.`,
     raw: xml.replace(/\s+/g, " ").trim().slice(0, 400),
   };
 }

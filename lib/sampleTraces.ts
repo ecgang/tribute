@@ -19,12 +19,12 @@ export const SAMPLE_TRACES: RagTrace[] = [
     query:
       "What real-time operating system approach did the Apollo Guidance Computer use?",
     answer:
-      "The Apollo Guidance Computer ran a priority-driven, preemptive executive that scheduled jobs by priority and could shed low-priority work under overload — the behavior that let it survive the 1201/1202 alarms during Apollo 11's descent. A restart-protection scheme let interrupted jobs resume cleanly.",
+      "The Apollo Guidance Computer ran a priority-driven, preemptive executive that scheduled jobs by priority and could shed low-priority work under overload, the behavior that let it survive the 1201/1202 alarms during Apollo 11's descent. A restart-protection scheme let interrupted jobs resume cleanly.",
     candidates: [
       {
         sourceId: "agc-1",
         sourceUrl: "https://en.wikipedia.org/wiki/Apollo_Guidance_Computer",
-        title: "Apollo Guidance Computer — Executive & priority scheduling",
+        title: "Apollo Guidance Computer: Executive & priority scheduling",
         chunkText:
           "The AGC's Executive used a priority-driven, preemptive scheduler. Under overload it shed low-priority jobs, producing the 1201/1202 alarms while continuing critical guidance tasks.",
         retrievalScore: 0.92,
@@ -35,7 +35,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "agc-2",
         sourceUrl: "https://history.nasa.gov/computers/Ch2-5.html",
-        title: "NASA — Computers in Spaceflight: restart protection",
+        title: "NASA: Computers in Spaceflight, restart protection",
         chunkText:
           "A restart-protection mechanism checkpointed jobs so that after a software restart, interrupted tasks resumed without loss of guidance state.",
         retrievalScore: 0.6,
@@ -46,7 +46,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "agc-3",
         sourceUrl: "https://www.britannica.com/technology/Apollo-Guidance-Computer",
-        title: "Britannica — Apollo Guidance Computer (overview)",
+        title: "Britannica: Apollo Guidance Computer (overview)",
         chunkText:
           "The AGC was a milestone in integrated-circuit computing, with about 2,000 words of erasable memory and 36,000 words of fixed memory.",
         retrievalScore: 0.34,
@@ -75,7 +75,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "jwst-distractor",
         sourceUrl: "https://www.theverge.com/2021/12/24/jwst-hubble-comparison",
-        title: "The Verge — How Webb compares to Hubble (feature)",
+        title: "The Verge: How Webb compares to Hubble (feature)",
         chunkText:
           "Webb is often compared to Hubble, but it observes primarily in the infrared and orbits the Sun at the L2 point rather than orbiting Earth.",
         retrievalScore: 0.95,
@@ -89,7 +89,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "jwst-launch",
         sourceUrl: "https://www.nasa.gov/mission_pages/webb/launch/index.html",
-        title: "NASA — Webb launch facts",
+        title: "NASA: Webb launch facts",
         chunkText:
           "The James Webb Space Telescope launched 25 December 2021 on an Ariane 5 rocket from Kourou, French Guiana.",
         retrievalScore: 0.82,
@@ -100,7 +100,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "jwst-mirror",
         sourceUrl: "https://en.wikipedia.org/wiki/James_Webb_Space_Telescope",
-        title: "Wikipedia — JWST primary mirror",
+        title: "Wikipedia: JWST primary mirror",
         chunkText:
           "Webb's primary mirror is 6.5 m across, composed of 18 hexagonal gold-coated beryllium segments.",
         retrievalScore: 0.5,
@@ -120,7 +120,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
     id: "parametric-knowledge",
     title: "Parametric knowledge (don't pay for what the model already knew)",
     teaching:
-      "Common-knowledge query. The sources were retrieved and overlap the answer textually, so retrieval and semantic backends over-attribute — but removing every source doesn't change the answer, so causal attribution is ~0 and the credit flows to 'model parametric / unattributed.' The honest case naive meters get wrong.",
+      "Common-knowledge query. The sources were retrieved and overlap the answer textually, so retrieval and semantic backends over-attribute; but removing every source doesn't change the answer, so causal attribution is ~0 and the credit flows to 'model parametric / unattributed.' The honest case naive meters get wrong.",
     query: "What is the boiling point of water at sea level?",
     answer:
       "At standard atmospheric pressure (sea level), water boils at 100 °C (212 °F).",
@@ -128,7 +128,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "boil-1",
         sourceUrl: "https://www.britannica.com/science/boiling-point",
-        title: "Britannica — Boiling point",
+        title: "Britannica: Boiling point",
         chunkText:
           "At one atmosphere of pressure, water boils at 100 degrees Celsius (212 degrees Fahrenheit).",
         retrievalScore: 0.88,
@@ -140,7 +140,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "boil-2",
         sourceUrl: "https://en.wikipedia.org/wiki/Boiling_point",
-        title: "Wikipedia — Boiling point",
+        title: "Wikipedia: Boiling point",
         chunkText:
           "The boiling point of water at sea-level atmospheric pressure is 100 °C.",
         retrievalScore: 0.8,
@@ -152,7 +152,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "boil-3",
         sourceUrl: "https://www.usgs.gov/faqs/water-boiling-temperature",
-        title: "USGS — Water FAQ",
+        title: "USGS: Water FAQ",
         chunkText:
           "Pure water boils at 100 °C (212 °F) at standard sea-level pressure.",
         retrievalScore: 0.7,
@@ -176,7 +176,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "tohoku-mag-a",
         sourceUrl: "https://www.usgs.gov/earthquakes/2011-tohoku",
-        title: "USGS — 2011 Tōhoku magnitude",
+        title: "USGS: 2011 Tōhoku magnitude",
         chunkText:
           "The 11 March 2011 Tōhoku earthquake registered a moment magnitude of 9.0–9.1, the largest ever recorded in Japan.",
         retrievalScore: 0.82,
@@ -187,7 +187,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "tohoku-mag-b",
         sourceUrl: "https://en.wikipedia.org/wiki/2011_Tohoku_earthquake",
-        title: "Wikipedia — 2011 Tōhoku earthquake (magnitude)",
+        title: "Wikipedia: 2011 Tōhoku earthquake (magnitude)",
         chunkText:
           "The earthquake had a magnitude of 9.0–9.1 Mw, the most powerful ever recorded in Japan.",
         retrievalScore: 0.79,
@@ -198,7 +198,7 @@ export const SAMPLE_TRACES: RagTrace[] = [
       {
         sourceId: "tohoku-tsunami",
         sourceUrl: "https://www.nature.com/articles/fukushima-tsunami-2011",
-        title: "Nature — Tsunami and the Fukushima Daiichi disaster",
+        title: "Nature: Tsunami and the Fukushima Daiichi disaster",
         chunkText:
           "The ensuing tsunami inundated the Fukushima Daiichi plant, causing loss of cooling and the subsequent nuclear disaster.",
         retrievalScore: 0.55,

@@ -1,21 +1,27 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #0a0c10;
-  --panel: #12151c;
-  --panel-2: #181c24;
-  --border: #242a35;
-  --text: #e7ebf0;
-  --muted: #8b95a6;
-  --accent: #5b9bff;
-  --money: #34d399;
-  --warn: #f5a524;
-  --danger: #f87171;
+  /* Light editorial "record": warm paper, ink, and a single red-pencil accent.
+     The accent is the proofreader's red — an editing/correction mark, which is what
+     a citation auditor does. One accent only; ink carries the authoritative readings. */
+  --bg: #f4f3ee;         /* warm paper (near-neutral — deliberately not craft-beige) */
+  --panel: #faf9f5;      /* faint raised paper */
+  --panel-2: #eae8e1;    /* inset / bar track */
+  --border: #d6d3c9;     /* hairline rule */
+  --text: #1c1a14;       /* warm near-black ink */
+  --muted: #6c6960;      /* warm grey */
+  --accent: #8f8a7d;     /* naive / secondary — muted, recedes */
+  --money: #1c1a14;      /* causal / contributive = ink, the authoritative reading */
+  --signal: #b23a26;     /* red-pencil — the ONE accent (flags, emphasis, the quote) */
+  --warn: #9a7328;       /* partial — muted ochre, used rarely */
+  --danger: #b23a26;     /* alarm = the same red */
+  --ink: #f4f3ee;        /* paper — text set on ink/red fills */
 }
 
 @theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+  --font-serif: var(--font-newsreader);
 }
 
 html, body {
@@ -25,54 +31,46 @@ html, body {
 }
 
 body {
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "tnum" 1; /* tabular figures — a data record */
+}
+
+/* Editorial display: serif, roman (never italic headers), tight. */
+h1, h2, h3, .serif {
+  font-family: var(--font-newsreader), Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .mono {
-  font-family: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-}
+/* A hairline rule — the primary editorial divider (used in place of card boxes). */
+.rule { border-top: 1px solid var(--border); }
 
-/* Weight tiers — hero reads loudest, compact recedes for secondary detail. */
-.panel-hero {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-top: 2px solid var(--money);
-  border-radius: 16px;
-}
-.panel-compact {
-  background: var(--panel-2);
-  border-radius: 10px;
-}
+/* Surfaces (results view): faint paper + hairline, minimal radius. Not glossy cards. */
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 3px; }
+.panel-hero { background: var(--panel); border: 1px solid var(--border); border-top: 2px solid var(--signal); border-radius: 3px; }
+.panel-compact { background: var(--panel-2); border-radius: 3px; }
 
-.bar-track {
-  background: var(--panel-2);
-  border-radius: 999px;
-  overflow: hidden;
-}
+.bar-track { background: var(--panel-2); border-radius: 1px; overflow: hidden; }
 
 .seg { transition: all 0.15s ease; }
 
 @keyframes growbar { from { width: 0; } }
 .animate-bar { animation: growbar 0.5s ease-out; }
 
-/* The reveal: the grounding delta slides + fades in when the backend changes. */
 @keyframes deltaIn {
   from { opacity: 0; transform: translateY(-3px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .animate-delta { animation: deltaIn 0.35s ease-out; }
 
-/* The settlement record visibly re-emits when the meter inputs change. */
 @keyframes emitFlash { from { opacity: 0.3; } to { opacity: 1; } }
 .animate-emit { animation: emitFlash 0.45s ease-out; }
 
-/* Smooth the eval chart's active-point + row transitions. */
 .eval-dot { transition: r 0.2s ease, opacity 0.2s ease; }
 .eval-row { transition: background 0.2s ease; }
 

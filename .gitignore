@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next.stale*
 /out/
 
 # production
@@ -60,3 +61,6 @@ scripts/kill-test-result-*
 
 # Internal planning docs — keep out of the public repo (live in ../tribute-private/)
 /plans/
+
+# Internal scratch drafts (blog voicing, herald output) — never publish
+/scratchpad-*
