@@ -8,7 +8,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { RetrievedCandidate } from "../schema";
 import { LIVE_MODEL, LiveUnavailableError, type GenerateFn } from "./active";
-import { RAG_SYSTEM, buildContext } from "./prompt";
+import { systemFor, userBody } from "./prompt";
 
 function client(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -28,11 +28,11 @@ export function anthropicGenerate(): GenerateFn {
       model: LIVE_MODEL,
       max_tokens: 400,
       temperature: 0,
-      system: RAG_SYSTEM,
+      system: systemFor(candidates),
       messages: [
         {
           role: "user",
-          content: `Sources:\n${buildContext(candidates)}\n\nQuestion: ${query}`,
+          content: userBody(query, candidates),
         },
       ],
     });

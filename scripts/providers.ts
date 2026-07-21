@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GenerateFn } from "../lib/attribution/active";
 import type { RetrievedCandidate } from "../lib/schema";
-import { RAG_SYSTEM, buildContext } from "../lib/attribution/prompt";
+import { systemFor, userBody } from "../lib/attribution/prompt";
 import { anthropicGenerate } from "../lib/attribution/anthropicGenerate";
 import { sanitizeCliOutput } from "./faithfulness";
 
@@ -33,15 +33,15 @@ if (process.env.NEXT_RUNTIME) {
 
 export type ProviderId = "claude" | "gemini" | "gemini-flash" | "gpt";
 
-/** The single-prompt form of the RAG instruction — CLIs have no separate system slot, so the
- *  system prompt is folded in, byte-identical to what the API path sends via `RAG_SYSTEM`. */
+/** The single-prompt form of the instruction — CLIs have no separate system slot, so the system
+ *  prompt is folded in, byte-identical to what the API path sends via `systemFor`. Empty subset
+ *  (v(∅)) → closed-book system prompt, no `Sources:` block, and no citation output instruction. */
 export function buildRagPrompt(query: string, candidates: RetrievedCandidate[]): string {
-  return (
-    `${RAG_SYSTEM}\n\n` +
-    `Sources:\n${buildContext(candidates)}\n\n` +
-    `Question: ${query}\n\n` +
-    `Output ONLY the answer text with inline [n] citations. No preamble, no explanation of your process, no code fences.`
-  );
+  const outputTail =
+    candidates.length === 0
+      ? `Output ONLY the answer text. No preamble, no explanation of your process, no code fences.`
+      : `Output ONLY the answer text with inline [n] citations. No preamble, no explanation of your process, no code fences.`;
+  return `${systemFor(candidates)}\n\n${userBody(query, candidates)}\n\n${outputTail}`;
 }
 
 interface CliResult {
