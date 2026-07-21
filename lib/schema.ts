@@ -196,4 +196,12 @@ export type AttributeResponse = {
   settlement: SettlementRecord[];
   audit: AuditEntry[];
   total: { amount: number; currency: string };
+  /**
+   * All four backends scored over the SAME generated answer — present only on the live
+   * open-prompt path, where one causal run lets us show citation-vs-causal divergence for
+   * the same trace. `report` remains the causal one (drives settlement + audit).
+   */
+  reports?: Partial<Record<BackendId, AttributionReport>>;
+  /** The model's own inline citations parsed from the live answer (what it self-reported using). */
+  citations?: Citation[];
 };

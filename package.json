@@ -9,7 +9,9 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "benchmark": "npx tsx scripts/benchmark.ts"
+    "benchmark": "npx tsx scripts/benchmark.ts",
+    "kill-test": "npx tsx scripts/kill-test.ts",
+    "benchmark-models": "npx tsx scripts/benchmark-models.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.107.0",

@@ -9,7 +9,7 @@
  */
 import type { RetrievedCandidate } from "../schema";
 import { cosine } from "../text";
-import type { WeightMap } from "./passive";
+import { stripCitationMarkers, type WeightMap } from "./passive";
 
 export const LIVE_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
@@ -30,9 +30,10 @@ export type LiveCausalResult = {
   model: string;
 };
 
-/** Split an answer into atomic claims (sentence-level). */
+/** Split an answer into atomic claims (sentence-level). Citation markers are stripped first so
+ * the causal delta measures CONTENT, not the model's bracketed `[n]` annotations. */
 export function splitClaims(text: string): string[] {
-  return text
+  return stripCitationMarkers(text)
     .replace(/\n+/g, " ")
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())

@@ -8,21 +8,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { RetrievedCandidate } from "../schema";
 import { LIVE_MODEL, LiveUnavailableError, type GenerateFn } from "./active";
+import { RAG_SYSTEM, buildContext } from "./prompt";
 
 function client(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new LiveUnavailableError("ANTHROPIC_API_KEY not set — live mode unavailable.");
   return new Anthropic({ apiKey });
 }
-
-function buildContext(candidates: RetrievedCandidate[]): string {
-  return candidates
-    .map((c, i) => `[Source ${i + 1}] ${c.title}\n${c.chunkText}`)
-    .join("\n\n");
-}
-
-const SYSTEM =
-  "You are a retrieval-augmented answer engine. Answer the user's question concisely using ONLY the provided sources. If the sources do not contain the answer, answer from general knowledge in one sentence. Do not mention the sources or that you were given context.";
 
 /**
  * Build a `GenerateFn` backed by a real Anthropic client. Constructs (and validates) the
@@ -36,7 +28,7 @@ export function anthropicGenerate(): GenerateFn {
       model: LIVE_MODEL,
       max_tokens: 400,
       temperature: 0,
-      system: SYSTEM,
+      system: RAG_SYSTEM,
       messages: [
         {
           role: "user",

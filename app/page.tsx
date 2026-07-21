@@ -5,11 +5,14 @@ import {
   BACKENDS,
   BACKEND_META,
   type AttributeResponse,
+  type AttributionReport,
   type BackendId,
+  type Citation,
   type SettlementRecord,
   type SourceAttribution,
 } from "@/lib/schema";
 import { SAMPLE_TRACES } from "@/lib/sampleTraces";
+import { shouldFetch, shouldCommit } from "@/lib/loadGuard";
 import { verifyChainBrowser } from "@/lib/verifyBrowser";
 import type { BackendEval, EvalResult } from "@/lib/eval";
 
@@ -34,6 +37,9 @@ export default function Home() {
   const [backend, setBackend] = useState<BackendId>("retrieval");
   const [mode, setMode] = useState<Mode>("canned");
   const [openQuery, setOpenQuery] = useState<string>("");
+  // Bumped on every open-prompt submit so an identical query re-triggers load() (React ignores a
+  // same-value setState), giving a real retry after a degraded/failed response.
+  const [runToken, setRunToken] = useState(0);
   const [data, setData] = useState<
     AttributeResponse & { notice?: string; error?: string; retrievedCount?: number }
   >();
@@ -44,10 +50,16 @@ export default function Home() {
   // change as a delta ("▼ 46 pts vs naive") instead of a silent number swap.
   const prevGroundedRef = useRef<{ v: number; backend: BackendId } | null>(null);
   const [delta, setDelta] = useState<{ pts: number; vs: BackendId } | null>(null);
-  // Monotonic id guards against out-of-order responses: if the user switches
-  // selection before an in-flight request resolves, only the most recently
-  // initiated load() may write state.
-  const reqIdRef = useRef(0);
+  // The fetch key the UI currently wants. Recorded before load()'s dedupe return, so a settled
+  // response commits ONLY if it still matches the latest intent — this is the A→B→A guard
+  // (returning to A restores A as desired, so a late B response is dropped, not shown under A).
+  const desiredKeyRef = useRef<string>("");
+  // Fetch-dedupe keys. On an open prompt the four backends all come back in one response, so
+  // switching backend is a client-side view change — the loaded key stops it re-firing the (paid)
+  // live ablation. Crucially the key locks only on SUCCESS (see load()), so a failed/degraded
+  // request stays retryable for the same prompt. Scenarios refetch per backend (server computes one).
+  const loadedKeyRef = useRef<string | null>(null);
+  const inFlightKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/eval")
@@ -60,14 +72,46 @@ export default function Home() {
 
   const isOpen = openQuery.trim().length > 0;
 
+  // On an open prompt every backend is scored over the same answer, so the displayed report follows
+  // the toggle client-side; scenarios (and any legacy payload) fall back to the single `report`.
+  const activeReport =
+    (isOpen && data?.reports?.[backend] ? data.reports[backend] : data?.report) ?? undefined;
+
+  // Settlement, audit and RSL are always assembled from the causal PRIMARY report, so their labels
+  // and the exported audit record must follow that report's backend — not the display toggle (which
+  // only switches the comparison view on open prompts). Else a causal ledger would read "citation".
+  const settlementBackend = data?.report?.backend ?? backend;
+
+  // Open-prompt submit: lead with the honest causal view, and force a fresh attempt even for an
+  // identical query (clear the lock + bump runToken so load() re-runs despite the same string).
+  const submitOpen = useCallback((q: string) => {
+    loadedKeyRef.current = null;
+    setBackend("causal");
+    setOpenQuery(q);
+    setRunToken((t) => t + 1);
+  }, []);
+
   const load = useCallback(async () => {
-    const reqId = ++reqIdRef.current;
+    void runToken; // a dep (re-runs load on explicit re-submit) but not read in the body
+    // Open prompt returns all backends in one payload → backend is NOT part of its fetch key,
+    // so toggling backends re-renders from `data.reports` without another server round-trip.
+    const fetchKey = isOpen ? `open:${openQuery}` : `sc:${traceId}:${backend}:${mode}`;
+    // Record the latest intent BEFORE the dedupe return — even a deduped return-to-A must restore
+    // A as the desired key so A's in-flight response (not a stale B) is the one that commits.
+    desiredKeyRef.current = fetchKey;
+    if (!shouldFetch(fetchKey, { loadedKey: loadedKeyRef.current, inFlight: inFlightKeysRef.current })) {
+      // Deduped (cached, or already in flight). Sync the spinner to whether the DESIRED request is
+      // actually pending — otherwise a cached return-to-A after starting B would strand loading=true.
+      setLoading(inFlightKeysRef.current.has(fetchKey));
+      return;
+    }
+    inFlightKeysRef.current.add(fetchKey);
     setLoading(true);
     setError(undefined);
     try {
       // Open prompt forces live (retrieve → generate → attribute); scenarios honor the mode toggle.
       const body = isOpen
-        ? { query: openQuery, backend, mode: "live" }
+        ? { query: openQuery, backend: "causal", mode: "live" }
         : { traceId, backend, mode };
       const res = await fetch("/api/attribute", {
         method: "POST",
@@ -76,31 +120,47 @@ export default function Home() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const next = (await res.json()) as typeof data;
-      if (reqId !== reqIdRef.current) return; // a newer selection superseded this one
-      const grounded = next?.report ? Math.max(0, 1 - next.report.unattributed) : null;
-      const prev = prevGroundedRef.current;
-      // Only a backend switch produces a meaningful "was X, now Y" comparison.
-      setDelta(
-        grounded != null && prev && prev.backend !== backend
-          ? { pts: Math.round((grounded - prev.v) * 100), vs: prev.backend }
-          : null,
-      );
-      if (grounded != null) prevGroundedRef.current = { v: grounded, backend };
+      if (!shouldCommit(fetchKey, desiredKeyRef.current)) return; // a newer selection superseded this
       setData(next);
+      // Lock the key ONLY on a real, usable response — a degraded 200 (error payload such as
+      // live_disabled) leaves it unlocked so the same prompt can be retried. (delta is recomputed
+      // reactively below, so it also fires on client-side open-prompt backend switches.)
+      if (!next?.error) loadedKeyRef.current = fetchKey;
     } catch (e) {
-      if (reqId === reqIdRef.current) setError(String(e));
+      if (shouldCommit(fetchKey, desiredKeyRef.current)) setError(String(e));
     } finally {
-      if (reqId === reqIdRef.current) setLoading(false);
+      inFlightKeysRef.current.delete(fetchKey); // clear only THIS request's ownership
+      // Spinner reflects whether the CURRENTLY-desired request is still pending, so a superseded
+      // request settling still clears loading iff nothing desired remains in flight.
+      setLoading(inFlightKeysRef.current.has(desiredKeyRef.current));
     }
-  }, [traceId, backend, mode, openQuery, isOpen]);
+    // runToken is a dep so a re-submit of the same open prompt re-runs this even when the query
+    // string is unchanged (the submit handler clears loadedKeyRef so the guard permits it).
+  }, [traceId, backend, mode, openQuery, isOpen, runToken]);
 
   useEffect(() => {
     // Imperative data fetch (POST /api/attribute) re-run when the scenario,
     // backend, or mode changes. Effects are the correct mechanism for this;
     // there is no render-time or external-store equivalent for a network call.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  // Grounding delta ("▲/▼ N pts vs X"): recompute whenever the DISPLAYED report changes — driven by
+  // `data`/`backend`, so it also fires on open-prompt backend toggles (which switch client-side with
+  // no refetch and therefore never re-enter load()). Guard on the report actually matching the
+  // selected backend so a scenario's in-flight window doesn't compute a delta off the stale report.
+  useEffect(() => {
+    if (!activeReport || activeReport.backend !== backend) return;
+    const grounded = Math.max(0, 1 - activeReport.unattributed);
+    const prev = prevGroundedRef.current;
+    setDelta(
+      prev && prev.backend !== backend
+        ? { pts: Math.round((grounded - prev.v) * 100), vs: prev.backend }
+        : null,
+    );
+    prevGroundedRef.current = { v: grounded, backend };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, backend]);
 
   return (
     <main className="mx-auto max-w-7xl px-5 py-6">
@@ -118,12 +178,12 @@ export default function Home() {
               setOpenQuery("");
               setTraceId(id);
             }}
-            onSubmitOpen={setOpenQuery}
+            onSubmitOpen={submitOpen}
             loading={loading}
           />
           <AnswerPanel
             query={isOpen ? openQuery : scenario.query}
-            answer={data?.trace.answer ?? (isOpen ? "" : scenario.answer)}
+            answer={data?.trace?.answer ?? (isOpen ? "" : scenario.answer)}
             teaching={
               isOpen
                 ? data?.retrievedCount
@@ -152,35 +212,42 @@ export default function Home() {
               {data.notice}
             </div>
           )}
-          {data?.report && (
+          {data?.report && activeReport && (
             <>
               <GroundingBadge
                 backend={backend}
-                unattributed={data.report.unattributed}
+                unattributed={activeReport.unattributed}
                 delta={delta}
                 onSeeCausal={backend !== "causal" ? () => setBackend("causal") : undefined}
               />
+              {data.reports && (
+                <DivergencePanel
+                  reports={data.reports}
+                  citations={data.citations}
+                  retrievedCount={data.retrievedCount}
+                />
+              )}
               <AttributionPanel
                 backend={backend}
-                sources={data.report.sources}
-                unattributed={data.report.unattributed}
+                sources={activeReport.sources}
+                unattributed={activeReport.unattributed}
               />
               <AuditPanel
                 records={data.settlement}
                 entries={data.audit}
-                backend={backend}
+                backend={settlementBackend}
                 total={data.total}
               />
               <Act2Section>
                 <RslPanel data={data} />
-                <Ledger data={data} backend={backend} />
+                <Ledger data={data} backend={settlementBackend} />
               </Act2Section>
             </>
           )}
         </section>
       </div>
 
-      {data?.report && <RslLeverage data={data} backend={backend} />}
+      {data?.report && <RslLeverage data={data} backend={settlementBackend} />}
       {evalResult && <EvalPanel evalResult={evalResult} backend={backend} />}
       <Footer />
     </main>
@@ -256,6 +323,103 @@ function GroundingBadge({
           See Causal → watch this number change
         </button>
       )}
+    </div>
+  );
+}
+
+function TwoBar({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="mb-1 flex items-center gap-2">
+      <span className="mono w-12 shrink-0 text-[10px]" style={{ color: "var(--muted)" }}>
+        {label}
+      </span>
+      <div className="bar-track h-2 flex-1">
+        <div className="animate-bar h-full" style={{ width: `${Math.round(value * 100)}%`, background: color }} />
+      </div>
+      <span className="mono w-9 shrink-0 text-right text-[11px] font-semibold" style={{ color }}>
+        {pct(value)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The "citation ≠ causation" receipt (live open-prompt only): for the SAME generated answer,
+ * each source's own citation share beside its measured causal contribution. Divergent sources get
+ * tagged — a cited source that drove nothing ("decorative citation") and an uncited source that
+ * actually drove the answer ("uncredited driver"). Deliberately about the ARTIFACT, not a person.
+ */
+function DivergencePanel({
+  reports,
+  citations,
+  retrievedCount,
+}: {
+  reports: Partial<Record<BackendId, AttributionReport>>;
+  citations?: Citation[];
+  retrievedCount?: number;
+}) {
+  const citation = reports.citation;
+  const causal = reports.causal;
+  if (!citation || !causal) return null;
+
+  const citById = new Map(citation.sources.map((s) => [s.sourceId, s.attributionScore]));
+  const citedIds = new Set((citations ?? []).map((c) => c.sourceId));
+
+  const rows = causal.sources.map((s) => {
+    const citScore = citById.get(s.sourceId) ?? 0;
+    const cauScore = s.attributionScore;
+    const cited = citedIds.has(s.sourceId) || citScore > 0;
+    // Thresholds: <5% causal ≈ "did nothing"; ≥15% causal ≈ a material driver. Deliberately
+    // asymmetric so only clear-cut divergences get tagged — borderline cases stay untagged.
+    let tag: { label: string; color: string } | null = null;
+    if (cited && cauScore < 0.05) tag = { label: "decorative citation", color: "var(--danger)" };
+    else if (!cited && cauScore >= 0.15) tag = { label: "uncredited driver", color: "var(--money)" };
+    return { s, citScore, cauScore, cited, tag };
+  });
+  rows.sort((a, b) => Math.abs(b.cauScore - b.citScore) - Math.abs(a.cauScore - a.citScore));
+  const anyDivergence = rows.some((r) => r.tag);
+
+  return (
+    <div className="panel p-4" style={{ borderColor: "var(--money)" }}>
+      <div className="mb-1 flex items-center justify-between">
+        <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted)" }}>
+          Citation vs causal · what the answer credited vs what drove it
+        </div>
+        <span className="mono text-[10px]" style={{ color: "var(--money)" }}>the receipt</span>
+      </div>
+      <p className="mb-3 text-[12px]" style={{ color: anyDivergence ? "var(--text)" : "var(--muted)" }}>
+        {anyDivergence
+          ? "The answer's own citations and its measured causal drivers disagree — see the tags."
+          : "On this question the citations and the causal drivers broadly agree."}
+      </p>
+      <div className="flex flex-col gap-3">
+        {rows.map(({ s, citScore, cauScore, cited, tag }) => (
+          <div key={s.sourceId}>
+            <div className="mb-1 flex items-baseline justify-between gap-2">
+              <span className="truncate text-sm font-medium">
+                {cited ? "" : "— "}
+                {s.title}
+              </span>
+              {tag && (
+                <span
+                  className="mono shrink-0 rounded px-1.5 py-0.5 text-[9px]"
+                  style={{ background: "var(--panel-2)", color: tag.color }}
+                >
+                  {tag.label}
+                </span>
+              )}
+            </div>
+            <TwoBar label="cited" value={citScore} color="var(--accent)" />
+            <TwoBar label="causal" value={cauScore} color="var(--money)" />
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[11px]" style={{ color: "var(--muted)" }}>
+        Within this disclosed set of {retrievedCount ?? causal.sources.length} retrieved sources, for a
+        single generation (temperature 0): <span className="mono">cited</span> = the answer&apos;s own
+        inline-citation share; <span className="mono">causal</span> = share of answer-claims lost when
+        that source is removed. Directional, not reproducible run-to-run; not proof of human origin.
+      </p>
     </div>
   );
 }

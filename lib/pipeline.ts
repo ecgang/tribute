@@ -7,7 +7,14 @@ import { relevanceWeights } from "./attribution";
 import type { WeightMap } from "./attribution/passive";
 import { buildAuditChain } from "./audit";
 import { buildReport } from "./scoring";
-import type { AttributeResponse, BackendId, RagTrace, RslTerms } from "./schema";
+import {
+  BACKENDS,
+  type AttributeResponse,
+  type AttributionReport,
+  type BackendId,
+  type RagTrace,
+  type RslTerms,
+} from "./schema";
 import { buildSettlement, settlementTotal } from "./settlement";
 
 export function assembleResponse(
@@ -31,4 +38,23 @@ export function assembleResponse(
     audit,
     total,
   };
+}
+
+/**
+ * Live open-prompt assembly: score ALL FOUR backends over the SAME generated answer + the SAME
+ * measured causal weights, so the response can show citation-vs-causal divergence for one trace.
+ * The primary `report` (and therefore settlement + audit) is the causal one — the audit-grade signal.
+ */
+export function assembleLiveWithReports(
+  trace: RagTrace,
+  rsl: RslTerms[],
+  timestamp: string,
+  causalWeights: WeightMap,
+): AttributeResponse {
+  const base = assembleResponse(trace, "causal", "live", rsl, timestamp, { causal: causalWeights });
+  const reports: Partial<Record<BackendId, AttributionReport>> = {};
+  for (const b of BACKENDS) {
+    reports[b] = buildReport(trace, b, relevanceWeights(trace, b, { causal: causalWeights }), "live");
+  }
+  return { ...base, reports, citations: trace.citations };
 }
