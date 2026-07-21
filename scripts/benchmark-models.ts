@@ -19,21 +19,21 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { retrieveCandidates } from "../lib/retrieve";
-import { liveCausal } from "../lib/attribution/active";
 import { parseCitations } from "../lib/attribution/passive";
-import { assembleLiveWithReports } from "../lib/pipeline";
 import { RAG_SYSTEM } from "../lib/attribution/prompt";
-import type { RagTrace, RetrievedCandidate } from "../lib/schema";
+import { shapleyCausal, shapleyGenerationCount } from "../lib/attribution/shapley";
+import type { RetrievedCandidate } from "../lib/schema";
 import { citationFaithfulness, isAbstention } from "./faithfulness";
 import { defaultEntrants, type Entrant } from "./providers";
 
-/** A source counts as causal if removing it lost more than this fraction of the answer's claims. */
+/** A source counts as causal if its Shapley credit exceeds this share of the answer. */
 const CAUSAL_EPS = 0.05;
 const K = Number(process.env.BENCH_K ?? argFlag("--k") ?? 3);
 const CACHE_DIR = join("scripts", ".bench-cache");
 /** Bump when the prompt, metric, or scoring logic changes — folded into the cache key so a config
- *  change can't silently reuse stale cached answers under a fresh run timestamp (reviewer finding). */
-const BENCH_VERSION = "2";
+ *  change can't silently reuse stale cached answers under a fresh run timestamp (reviewer finding).
+ *  v3 = Shapley-value causal attribution (replaced strict leave-one-out). */
+const BENCH_VERSION = "3";
 const PROMPT_HASH = createHash("sha1").update(RAG_SYSTEM).digest("hex").slice(0, 8);
 
 const DEFAULT_QUESTIONS = [
@@ -131,26 +131,19 @@ async function runModel(
     f1: 0,
   };
   try {
-    const { answer, weights, model } = await liveCausal(question, candidates, entrant.makeGen());
-    if (!answer.trim()) throw new Error("empty answer");
-    const trace: RagTrace = {
-      id: "bench",
-      title: question,
-      query: question,
+    const { answer, weights, parametric } = await shapleyCausal(
+      question,
       candidates,
-      answer,
-      citations: parseCitations(answer, candidates),
-      generation: { model, temperature: 0, promptAssemblyRef: "rag-v1" },
-    };
-    // grounding (parametric share) still comes from the causal report; the faithfulness sets below
-    // are built from the RAW signals, not the composite attributionScore (reviewer finding: the
-    // composite blends relevance/authority/uniqueness and would confound the metric).
-    const res = assembleLiveWithReports(trace, [], new Date().toISOString(), weights);
-    const causal = res.reports?.causal;
-
+      entrant.makeGen(),
+    );
+    if (!answer.trim()) throw new Error("empty answer");
+    const citations = parseCitations(answer, candidates);
+    // The faithfulness sets are built from the RAW signals — the model's own citations and the
+    // Shapley causal weights — NOT the composite attributionScore (reviewer finding: the composite
+    // blends relevance/authority/uniqueness and would confound the metric).
     // `cited`  = exactly the sources the model cited (from its own inline [n] markers).
-    // `causalSet` = sources whose leave-one-out delta cleared CAUSAL_EPS (raw ablation weights).
-    const cited = new Set((trace.citations ?? []).map((cit) => cit.sourceId));
+    // `causalSet` = sources whose Shapley credit cleared CAUSAL_EPS (redundancy-robust).
+    const cited = new Set(citations.map((cit) => cit.sourceId));
     const causalSet = new Set(
       candidates.filter((c) => (weights[c.sourceId] ?? 0) > CAUSAL_EPS).map((c) => c.sourceId),
     );
@@ -163,7 +156,7 @@ async function runModel(
       if (!isCited && drove) uncredited += 1;
     }
     const { precision, recall, f1 } = citationFaithfulness(cited, causalSet);
-    const citationCount = trace.citations?.length ?? 0;
+    const citationCount = citations.length;
     // Abstention only EXCUSES a question when there is no causal signal at all. If ablation proved a
     // source drove the answer, a "from general knowledge" disclaimer must NOT hide that uncredited
     // driver — it stays scored (reviewer finding). So abstained ⇒ causalSet is empty.
@@ -175,7 +168,9 @@ async function runModel(
       abstained,
       answer,
       citationCount,
-      grounding: Math.max(0, Math.min(1, 1 - (causal?.unattributed ?? 1))),
+      // Grounding = 1 − parametric, straight from Shapley's efficiency identity (Σφ = v(N) − v(∅)),
+      // cleaner and consistent with the causal weights than the composite report's `unattributed`.
+      grounding: Math.max(0, Math.min(1, 1 - parametric)),
       decorative,
       uncredited,
       precision,
@@ -282,17 +277,18 @@ export function renderMarkdown(
     `**Verdict:** ${verdict}`,
     ``,
     `## How to read it`,
-    `- **Precision** = of the sources a model cited, the fraction that actually did causal work (leave-one-out). Low precision = decorative citations.`,
-    `- **Recall** = of the sources that did causal work, the fraction the model actually cited. Low recall = uncredited drivers.`,
+    `- **Precision** = of the sources a model cited, the fraction that carried real Shapley causal credit. Low precision = decorative citations.`,
+    `- **Recall** = of the sources that carried causal credit, the fraction the model actually cited. Low recall = uncredited drivers.`,
     `- **F1** = the balance of the two. Higher = the model's citations more faithfully track what drove its answer.`,
     ``,
     `## Methodology & honest caveats`,
+    `- **Causal credit = Shapley values** over source subsets: each source is credited by its average marginal contribution to the answer's claims. Unlike strict leave-one-out, redundant sources SHARE credit (a fact in 3 sources → each ~1/3) instead of all scoring 0, so faithfulness reflects the model, not source redundancy.`,
     `- **Same sources for every model** (one retrieval per question, shared) — this measures citation behavior, not retrieval quality.`,
     `- **We can only audit models we drive over our source set** — this is NOT an audit of ChatGPT.com / Perplexity's live black box (we don't control their retrieval).`,
     `- **Transport (asymmetric):** Claude runs via the Anthropic API (temp 0, raw); Gemini via the agy CLI; GPT via the Codex CLI. Three transports — Claude is a raw API while Gemini/GPT are agent-wrapped, so some cross-model difference may reflect the wrapper, not the model. Directional, not bit-reproducible.`,
     `- **Abstained** = the model explicitly declined to cite because the sources didn't cover the question (an HONEST response our prompt allows). These are excluded from F1 rather than scored 0 — otherwise honesty would look like unfaithfulness. A high abstention count is itself a signal (that model refuses to cite ill-fitting sources).`,
-    `- **Leave-one-out under-credits redundant sources** (a fact in 3 sources scores ~0 each), which can depress recall — it means "no single source was necessary", not "unused".`,
-    `- **Scored / n**: questions where NO source was individually necessary (fully redundant sources) have no faithfulness signal and are excluded from F1 (counted in n, not in Scored). A low Scored/n ratio means the question set is too redundant to discriminate.`,
+    `- **Grounding = 1 − parametric**, where parametric = the share of the answer's claims that survive with ZERO sources (Shapley v(∅)). It's the model's own-knowledge share, measured, not the composite report.`,
+    `- **Scored / n**: questions where the answer was fully parametric (no source carried causal credit) have no faithfulness signal and are excluded from F1 (counted in n, not in Scored).`,
     `- **Faithfulness ≠ truth.** A parametric answer isn't necessarily false; a grounded one isn't necessarily true.`,
   ];
   return lines.join("\n");
@@ -308,13 +304,17 @@ async function main(): Promise<void> {
   if (smoke) questions = questions.slice(0, 1);
 
   const entrants = defaultEntrants();
-  const genPerQ = 1 + K; // 1 baseline + K ablation generations per (model, question)
+  const { exact, generations: genPerQ } = shapleyGenerationCount(K); // Shapley: 2^k, not k+1
   const estGen = questions.length * entrants.length * genPerQ;
 
   console.log(`\nTribute cross-model attribution benchmark`);
   console.log(`Models: ${entrants.map((e) => e.label).join(", ")}`);
-  console.log(`Questions: ${questions.length} | k: ${K} | est. generations: ~${estGen} (${genPerQ}/model/question)`);
-  console.log(`(all models via the agy subscription; one Tavily search per question)\n`);
+  console.log(
+    `Questions: ${questions.length} | k: ${K} | Shapley ${exact ? "exact" : "sampled"} | est. generations: ~${estGen} (${genPerQ}/model/question)`,
+  );
+  console.log(`(Claude via Anthropic API; Gemini via agy; GPT via Codex — one Tavily search per question)`);
+  if (K >= 5) console.log(`⚠ k=${K}: Shapley is 2^k=${2 ** K} generations/model/question — this is a large, slow, quota-heavy run.`);
+  console.log("");
 
   if (dry) {
     console.log("--dry: no spend. Questions:");
