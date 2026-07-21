@@ -41,17 +41,31 @@ export interface ShapleyOpts {
   permutations?: (k: number, m: number) => number[][];
 }
 
+/** Subset membership uses 32-bit int masks, and 19! already exceeds Number.MAX_SAFE_INTEGER, so
+ *  reject any k where either the masks or the factorial weights would silently corrupt. In practice
+ *  k = retrieved sources per question (≈3–8), so this cap is a foot-gun guard, never a real limit. */
+const MAX_K = 30;
+/** Exact enumeration only when factorials stay exact (18! < MAX_SAFE_INTEGER < 19!). Above this we
+ *  fall back to Monte-Carlo even if the caller set a larger exactMaxK. */
+const SAFE_EXACT_K = 18;
+
+function isExact(k: number, exactMaxK: number): boolean {
+  return k <= Math.min(exactMaxK, SAFE_EXACT_K);
+}
+
 /** How many model generations an exact/sampled run will cost for k sources (baseline + subsets,
  *  excluding the full set which reuses the baseline). Used by the benchmark's --dry estimate. */
 export function shapleyGenerationCount(k: number, opts: ShapleyOpts = {}): { exact: boolean; generations: number } {
   const exactMaxK = opts.exactMaxK ?? 6;
-  if (k <= exactMaxK) {
+  if (isExact(k, exactMaxK)) {
     // all 2^k subsets except the full set (reuses baseline) + the baseline itself
     return { exact: true, generations: 2 ** k - 1 + 1 };
   }
-  // baseline + up to samples·k distinct subset evals (bounded by 2^k, but we report the worst case)
+  // Distinct proper subsets generated ≤ v(∅) (shared once) + samples·(k−1) non-empty non-full
+  // prefixes, capped at every non-full subset (2^k−1); plus the baseline. (The full prefix per
+  // permutation reuses the baseline for free — reviewer finding: `samples·k` overcounted.)
   const samples = opts.samples ?? 64;
-  return { exact: false, generations: Math.min(2 ** k - 1, samples * k) + 1 };
+  return { exact: false, generations: Math.min(2 ** k - 1, 1 + samples * (k - 1)) + 1 };
 }
 
 function defaultPermutations(k: number, m: number): number[][] {
@@ -78,6 +92,10 @@ export async function shapleyCausal(
   opts: ShapleyOpts = {},
 ): Promise<ShapleyResult> {
   const k = candidates.length;
+  if (k > MAX_K) {
+    // 32-bit subset masks + factorial precision both break past this; k is realistically ≤ ~8.
+    throw new Error(`shapleyCausal: k=${k} exceeds the supported maximum of ${MAX_K} sources.`);
+  }
   const baseline = await gen(query, candidates);
   const counter = { n: 1 }; // baseline counts as one generation
 
@@ -105,7 +123,7 @@ export async function shapleyCausal(
   };
 
   const exactMaxK = opts.exactMaxK ?? 6;
-  const useExact = k <= exactMaxK;
+  const useExact = isExact(k, exactMaxK);
   const phi = new Array<number>(k).fill(0);
 
   if (useExact) {
@@ -124,7 +142,21 @@ export async function shapleyCausal(
     }
   } else {
     const m = opts.samples ?? 64;
+    if (!Number.isInteger(m) || m < 1) {
+      throw new Error(`shapleyCausal: samples must be a positive integer, got ${m}.`);
+    }
     const perms = (opts.permutations ?? defaultPermutations)(k, m);
+    if (perms.length === 0) {
+      throw new Error("shapleyCausal: permutation source returned no permutations.");
+    }
+    // A malformed permutation (missing/duplicate/out-of-range index) would silently skip or
+    // double-count sources and corrupt the averaged φ — validate each is a true ordering of [0,k).
+    for (const perm of perms) {
+      const seen = new Set(perm);
+      if (perm.length !== k || seen.size !== k || [...seen].some((i) => i < 0 || i >= k)) {
+        throw new Error(`shapleyCausal: invalid permutation ${JSON.stringify(perm)} for k=${k}.`);
+      }
+    }
     for (const perm of perms) {
       let prefix = 0;
       let prevV = await value(0); // v(∅)

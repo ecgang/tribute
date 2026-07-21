@@ -118,6 +118,42 @@ describe("shapleyCausal — cost + caching", () => {
     expect(shapleyGenerationCount(6)).toEqual({ exact: true, generations: 64 });
     expect(shapleyGenerationCount(8, { samples: 32 }).exact).toBe(false);
   });
+
+  it("sampled cost estimate excludes the shared empty set + free full prefix (reviewer fix)", () => {
+    // k=8, samples=2: distinct proper subsets ≤ 1 (∅, shared) + 2·(8−1) = 15, +1 baseline = 16.
+    // The old `samples·k+1` = 17 overcounted.
+    expect(shapleyGenerationCount(8, { samples: 2 })).toEqual({ exact: false, generations: 16 });
+  });
+});
+
+describe("shapleyCausal — input validation (reviewer findings)", () => {
+  const cands = [cand("a"), cand("b")];
+  const gen = factGen({ a: ["alpha"], b: ["beta"] });
+
+  it("rejects k above the supported maximum instead of silently corrupting masks", async () => {
+    const many = Array.from({ length: 31 }, (_, i) => cand(`s${i}`));
+    await expect(shapleyCausal("q", many, factGen({}), { exactMaxK: 0, samples: 4 })).rejects.toThrow(
+      /exceeds the supported maximum/,
+    );
+  });
+
+  it("rejects zero samples instead of dividing by zero → NaN weights", async () => {
+    await expect(shapleyCausal("q", cands, gen, { exactMaxK: 0, samples: 0 })).rejects.toThrow(
+      /positive integer/,
+    );
+  });
+
+  it("rejects an empty permutation set", async () => {
+    await expect(
+      shapleyCausal("q", cands, gen, { exactMaxK: 0, permutations: () => [] }),
+    ).rejects.toThrow(/no permutations/);
+  });
+
+  it("rejects a malformed permutation (duplicate index)", async () => {
+    await expect(
+      shapleyCausal("q", cands, gen, { exactMaxK: 0, permutations: () => [[0, 0]] }),
+    ).rejects.toThrow(/invalid permutation/);
+  });
 });
 
 describe("shapleyCausal — Monte-Carlo path approximates exact", () => {
